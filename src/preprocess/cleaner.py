@@ -29,6 +29,12 @@ DROP_COLS: list[str] = [
 # itself is dropped -- the processed parquet never contains raw description.
 CORE_COLS: list[str] = ["price", "year", "odometer", "manufacturer"]
 
+CAST_STRIP_LOWER_COLS: list[str] = [
+    "manufacturer", "model", "condition", "cylinders", "fuel",
+    "title_status", "transmission", "drive", "size", "type",
+    "paint_color", "state", "region",
+]
+
 
 @dataclass
 class CleaningReport:
@@ -66,7 +72,32 @@ class CleaningReport:
 
 
 class DataCleaner:
-    """Applies deterministic cleaning rules to the raw vehicles CSV."""
+    """Applies deterministic cleaning rules to the raw vehicles CSV.
+
+    Every rule (price/year/odometer bounds, which columns get dropped, which
+    columns are "core" and required non-null, valid title statuses, and which
+    string columns get stripped/lowercased) is a constructor parameter so this
+    class works against a structurally different dataset without editing
+    source. Defaults reproduce the exact cleaning behavior documented in
+    docs/cleaning_pipeline.md and docs/phase1_audit.md.
+
+    Args:
+        price_min: Minimum valid price (inclusive).
+        price_max: Maximum valid price (inclusive).
+        year_min: Minimum valid model year (inclusive).
+        year_max: Maximum valid model year (inclusive).
+        odometer_min: Minimum valid odometer reading (inclusive).
+        odometer_max: Maximum valid odometer reading (inclusive).
+        valid_title_status: Title statuses to keep (plus null, always kept).
+            Defaults to a copy of VALID_TITLE_STATUS if None.
+        drop_cols: Non-predictive columns to drop before cleaning. Defaults
+            to a copy of DROP_COLS if None.
+        core_cols: Columns that must be non-null after cleaning; rows with a
+            null in any of these are dropped. Defaults to a copy of CORE_COLS
+            if None.
+        cast_strip_lower_cols: String columns to strip and lowercase during
+            type casting. Defaults to a copy of CAST_STRIP_LOWER_COLS if None.
+    """
 
     def __init__(
         self,
@@ -76,7 +107,10 @@ class DataCleaner:
         year_max: int = YEAR_MAX,
         odometer_min: float = ODOMETER_MIN,
         odometer_max: float = ODOMETER_MAX,
-        valid_title_status: set[str] = VALID_TITLE_STATUS,
+        valid_title_status: set[str] | None = None,
+        drop_cols: list[str] | None = None,
+        core_cols: list[str] | None = None,
+        cast_strip_lower_cols: list[str] | None = None,
     ) -> None:
         self.price_min = price_min
         self.price_max = price_max
@@ -84,10 +118,25 @@ class DataCleaner:
         self.year_max = year_max
         self.odometer_min = odometer_min
         self.odometer_max = odometer_max
-        self.valid_title_status = valid_title_status
+        self.valid_title_status = (
+            valid_title_status if valid_title_status is not None else set(VALID_TITLE_STATUS)
+        )
+        self.drop_cols = drop_cols if drop_cols is not None else list(DROP_COLS)
+        self.core_cols = core_cols if core_cols is not None else list(CORE_COLS)
+        self.cast_strip_lower_cols = (
+            cast_strip_lower_cols if cast_strip_lower_cols is not None else list(CAST_STRIP_LOWER_COLS)
+        )
         self.report = CleaningReport()
 
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Run the full cleaning pipeline and return the cleaned DataFrame.
+
+        Args:
+            df: Raw (or partially processed) input DataFrame.
+
+        Returns:
+            pd.DataFrame: Cleaned DataFrame with a fresh RangeIndex.
+        """
         self.report = CleaningReport(initial_rows=len(df))
         df = df.copy()
         df = self._drop_cols(df)
@@ -103,7 +152,7 @@ class DataCleaner:
         return df
 
     def _drop_cols(self, df: pd.DataFrame) -> pd.DataFrame:
-        cols_to_drop = [c for c in DROP_COLS if c in df.columns]
+        cols_to_drop = [c for c in self.drop_cols if c in df.columns]
         df = df.drop(columns=cols_to_drop)
         self.report.rows_after_drop_cols = len(df)
         self.report.notes.append(f"Dropped columns: {cols_to_drop}")
@@ -115,9 +164,7 @@ class DataCleaner:
         df["year"] = pd.to_numeric(df["year"], errors="coerce")
         if "posting_date" in df.columns:
             df["posting_date"] = pd.to_datetime(df["posting_date"], format="ISO8601", errors="coerce", utc=True)
-        for col in ["manufacturer", "model", "condition", "cylinders", "fuel",
-                    "title_status", "transmission", "drive", "size", "type",
-                    "paint_color", "state", "region"]:
+        for col in self.cast_strip_lower_cols:
             if col in df.columns:
                 df[col] = df[col].str.strip().str.lower()
         return df
@@ -200,7 +247,7 @@ class DataCleaner:
 
     def _drop_core_nulls(self, df: pd.DataFrame) -> pd.DataFrame:
         before = len(df)
-        core = [c for c in CORE_COLS if c in df.columns]
+        core = [c for c in self.core_cols if c in df.columns]
         df = df.dropna(subset=core)
         self.report.rows_after_core_nulls = len(df)
         self.report.notes.append(
