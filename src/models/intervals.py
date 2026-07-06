@@ -209,32 +209,14 @@ class MondrianConformalIntervalModel(ConformalIntervalModel):
 
 
 def fit_median_model(X_train: pd.DataFrame, y_train: pd.Series, n_estimators: int = LGBM_QUANTILE_N_ESTIMATORS):
-    """Single alpha=0.5 quantile LightGBM, used as the point estimate for reporting."""
+    """Fit a single alpha=0.5 quantile LightGBM, used as the point estimate for reporting.
+
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target (log-price scale).
+        n_estimators: Max boosting rounds.
+
+    Returns:
+        lightgbm.LGBMRegressor: The fitted median model.
+    """
     return _fit_lgbm_quantile(X_train, y_train, alpha=0.5, n_estimators=n_estimators)
-
-
-def coverage(price_actual: np.ndarray, lo_dollar: np.ndarray, hi_dollar: np.ndarray) -> float:
-    """Empirical coverage: fraction of actuals falling inside [lo, hi]."""
-    price_actual = np.asarray(price_actual)
-    return float(np.mean((price_actual >= lo_dollar) & (price_actual <= hi_dollar)))
-
-
-def coverage_by_segment(
-    price_actual: np.ndarray,
-    lo_dollar: np.ndarray,
-    hi_dollar: np.ndarray,
-    segment: pd.Series,
-) -> pd.DataFrame:
-    """Coverage and median width within each segment (age bucket, price bucket, ...)."""
-    inside = (np.asarray(price_actual) >= lo_dollar) & (np.asarray(price_actual) <= hi_dollar)
-    width = hi_dollar - lo_dollar
-    df = pd.DataFrame({
-        "inside": inside,
-        "width": width,
-        "segment": segment.values,
-    })
-    return (
-        df.groupby("segment", observed=False)
-        .agg(coverage=("inside", "mean"), median_width=("width", "median"), count=("inside", "count"))
-        .round(4)
-    )

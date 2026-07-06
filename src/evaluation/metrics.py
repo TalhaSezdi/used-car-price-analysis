@@ -75,3 +75,50 @@ def error_by_segment(
         count=("abs_error", "count"),
     ).sort_values("MAE", ascending=False)
     return agg.round(2)
+
+
+def coverage(price_actual: np.ndarray, lo_dollar: np.ndarray, hi_dollar: np.ndarray) -> float:
+    """Compute empirical coverage: fraction of actuals falling inside [lo, hi].
+
+    Args:
+        price_actual: Actual listed price per row.
+        lo_dollar: Interval lower bound per row (dollar scale).
+        hi_dollar: Interval upper bound per row (dollar scale).
+
+    Returns:
+        float: Fraction of rows where lo <= actual <= hi.
+    """
+    price_actual = np.asarray(price_actual)
+    return float(np.mean((price_actual >= lo_dollar) & (price_actual <= hi_dollar)))
+
+
+def coverage_by_segment(
+    price_actual: np.ndarray,
+    lo_dollar: np.ndarray,
+    hi_dollar: np.ndarray,
+    segment: pd.Series,
+) -> pd.DataFrame:
+    """Compute coverage and median interval width within each segment.
+
+    Args:
+        price_actual: Actual listed price per row.
+        lo_dollar: Interval lower bound per row (dollar scale).
+        hi_dollar: Interval upper bound per row (dollar scale).
+        segment: Segment label per row (e.g. age bucket, price bucket).
+
+    Returns:
+        pd.DataFrame: One row per segment with columns `coverage`,
+        `median_width`, `count`.
+    """
+    inside = (np.asarray(price_actual) >= lo_dollar) & (np.asarray(price_actual) <= hi_dollar)
+    width = hi_dollar - lo_dollar
+    df = pd.DataFrame({
+        "inside": inside,
+        "width": width,
+        "segment": segment.values,
+    })
+    return (
+        df.groupby("segment", observed=False)
+        .agg(coverage=("inside", "mean"), median_width=("width", "median"), count=("inside", "count"))
+        .round(4)
+    )

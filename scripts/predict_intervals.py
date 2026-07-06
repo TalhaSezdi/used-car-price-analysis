@@ -34,11 +34,10 @@ from src.models.dataset import (
     NUMERIC_FEATURES, LOW_CARD_FEATURES, HIGH_CARD_FEATURES,
 )
 from src.models.encoders import FeaturePreprocessor
-from src.models.intervals import (
-    MondrianConformalIntervalModel, fit_median_model, coverage, coverage_by_segment,
-)
+from src.models.intervals import MondrianConformalIntervalModel, fit_median_model
 from src.anomaly.detector import ResidualAnomalyDetector
 from src.evaluation import plots
+from src.evaluation.metrics import coverage, coverage_by_segment
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)

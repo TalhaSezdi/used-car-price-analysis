@@ -5,7 +5,8 @@ import pandas as pd
 import pytest
 
 from src.config import LGBM_QUANTILE_N_ESTIMATORS
-from src.models.intervals import ConformalIntervalModel, _fit_lgbm_quantile, coverage
+from src.evaluation.metrics import coverage
+from src.models.intervals import ConformalIntervalModel, _fit_lgbm_quantile
 
 
 @pytest.fixture
