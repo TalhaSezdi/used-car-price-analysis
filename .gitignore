@@ -1,0 +1,22 @@
+# --- Data (never commit; raw file is ~1.4 GB, processed is generated) ---
+data/raw/*
+data/processed/*
+!data/raw/README.md
+!data/processed/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- Virtual environments ---
+env/
+venv/
+.venv/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
