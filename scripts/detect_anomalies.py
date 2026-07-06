@@ -24,9 +24,13 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from src.models.dataset import (
     select_features, NUMERIC_FEATURES, LOW_CARD_FEATURES, HIGH_CARD_FEATURES,
 )
-from src.models.train import oof_log_predictions, LGBM_PARAMS
-from src.anomaly.detector import ResidualAnomalyDetector, IsolationForestDetector
+from src.models.train import oof_log_predictions
+from src.anomaly.detector import (
+    ResidualAnomalyDetector, IsolationForestDetector,
+    fat_tail_comparison, in_sample_residual_std, tier_anomalies,
+)
 from src.evaluation import plots
+from src.evaluation.reporting import anomaly_listing_note
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -51,24 +55,6 @@ Z_STRONG = 5.0
 PCT_STRONG = 85.0  # residual_pct magnitude threshold for "clearly junk listing"
 CONTEXT_COLS = ["manufacturer", "model", "year", "age", "odometer",
                 "condition", "title_status", "state", "price"]
-
-
-def in_sample_residual_std(X, y) -> float:
-    """Fit one model on ALL rows and predict in-sample -- for the leakage demo."""
-    import lightgbm as lgb
-    from src.models.encoders import FeaturePreprocessor
-
-    prep = FeaturePreprocessor(
-        numeric_cols=NUMERIC_FEATURES,
-        low_card_cols=LOW_CARD_FEATURES,
-        high_card_cols=HIGH_CARD_FEATURES,
-        high_card_method="target",
-    )
-    Xt = prep.fit_transform(X, y)
-    model = lgb.LGBMRegressor(n_estimators=600, **LGBM_PARAMS)
-    model.fit(Xt, y)
-    resid = y.values - model.predict(Xt)
-    return float(np.std(resid))
 
 
 def main() -> None:
@@ -105,32 +91,16 @@ def main() -> None:
     out = pd.concat([out, res, iso], axis=1)
 
     # Tier the residual signal to separate "clearly a bad listing" from
-    # "possibly just model error on a rare car":
-    #   STRONG = extreme by BOTH z (>5) and pct deviation (>85%). This
-    #     survives the model-error confound: MAPE is ~37%, so a >85% deviation
-    #     is well outside the plausible model-noise band.
-    #   MODERATE = |z|>3.5 but not strong. Plausibly a bad listing, plausibly
-    #     the model missing a rare trim -- needs human review, not auto-action.
+    # "possibly just model error on a rare car" -- see tier_anomalies'
+    # docstring for the STRONG/MODERATE definitions.
+    tiered = tier_anomalies(
+        out["residual_z"], out["residual_flag"], out["residual_pct"], out["if_flag"],
+        z_strong=Z_STRONG, pct_strong=PCT_STRONG,
+    )
     abs_z = out["residual_z"].abs()
-    abs_pct = out["residual_pct"].abs()
-    strong_resid = (abs_z > Z_STRONG) & (abs_pct > PCT_STRONG)
-    moderate_resid = out["residual_flag"] & ~strong_resid
-
-    conditions = [
-        strong_resid & out["if_flag"],
-        strong_resid,
-        moderate_resid & out["if_flag"],
-        moderate_resid,
-        out["if_flag"],
-    ]
-    choices = [
-        "HIGH (strong mispriced + structural)",
-        "strong mispriced",
-        "moderate mispriced + structural",
-        "moderate mispriced (may be model error)",
-        "structural only",
-    ]
-    out["priority"] = np.select(conditions, choices, default="normal")
+    strong_resid = tiered["strong_resid"]
+    moderate_resid = tiered["moderate_resid"]
+    out["priority"] = tiered["priority"]
 
     n_resid = int(out["residual_flag"].sum())
     n_strong = int(strong_resid.sum())
@@ -145,7 +115,9 @@ def main() -> None:
     )
 
     # --- Evidence for the alternatives table ---
-    insample_std = in_sample_residual_std(X, y)
+    insample_std = in_sample_residual_std(
+        X, y, NUMERIC_FEATURES, LOW_CARD_FEATURES, HIGH_CARD_FEATURES,
+    )
 
     dollar_resid = out["price"] - out["predicted_price"]
     low = out["price"] < 10_000
@@ -156,13 +128,7 @@ def main() -> None:
     log_std_high = float(res["residual_log"][high.values].std())
 
     # --- Fat-tail probe: real dist vs Gaussian at the same threshold ---
-    from scipy.stats import norm
-    n = len(out)
-    fat_tail = []
-    for t in [3.5, 5, 7, 10]:
-        cnt = int((abs_z > t).sum())
-        gauss = 2 * norm.sf(t) * n
-        fat_tail.append((t, cnt, cnt / n * 100, gauss, gauss / n * 100))
+    fat_tail = fat_tail_comparison(abs_z, thresholds=[3.5, 5, 7, 10])
 
     # --- Category-based ranking (three separate top-N slices) ---
     # Reviewer sees examples of each ACTION, not just the underpriced tail.
@@ -213,28 +179,6 @@ def main() -> None:
         top_under=top_under, top_over=top_over, top_struct=top_struct,
     )
     logger.info("Results written to %s", RESULTS)
-
-
-def _listing_note(row: pd.Series, kind: str) -> str:
-    car = f"{int(row['year'])} {row['manufacturer']} {row['model']}"
-    odo = f"{int(row['odometer']):,} mi"
-    cond = row["condition"] if pd.notna(row["condition"]) else "condition missing"
-
-    if kind == "underpriced":
-        why = (f"listed ${row['price']:,.0f} vs model expects "
-               f"${row['predicted_price']:,.0f} ({row['residual_pct']:.0f}% below) -- "
-               f"far-below-market is a classic scam / hidden-defect / placeholder signal")
-    elif kind == "overpriced":
-        why = (f"listed ${row['price']:,.0f} vs model expects "
-               f"${row['predicted_price']:,.0f} (+{row['residual_pct']:.0f}%) -- "
-               f"likely an over-ask, data-entry error, or a rare trim the model does not capture")
-    else:  # structural
-        why = (f"listed ${row['price']:,.0f}; not extreme on price alone, but "
-               f"IF score {row['if_score']:.2f} -- attribute combination is unusual "
-               f"(age/odometer/mileage-per-year mix), likely a data-entry error")
-    struct = " Also flagged by Isolation Forest." \
-        if kind != "structural" and row["if_flag"] else ""
-    return f"**{car}** ({odo}, {cond}): {why}.{struct}"
 
 
 def write_results(
@@ -331,14 +275,14 @@ def write_results(
         "### Top 10 UNDERPRICED (route to fraud / trust-and-safety review)\n",
     ]
     for i, (_, row) in enumerate(top_under.iterrows(), start=1):
-        lines.append(f"{i}. {_listing_note(row, 'underpriced')}")
+        lines.append(f"{i}. {anomaly_listing_note(row, 'underpriced')}")
 
     lines += [
         "\n### Top 10 OVERPRICED (nudge seller: your price is above market)\n",
     ]
     if len(top_over):
         for i, (_, row) in enumerate(top_over.iterrows(), start=1):
-            lines.append(f"{i}. {_listing_note(row, 'overpriced')}")
+            lines.append(f"{i}. {anomaly_listing_note(row, 'overpriced')}")
     else:
         lines.append("_(none passed the residual threshold on the upper tail)_")
 
@@ -349,7 +293,7 @@ def write_results(
     ]
     if len(top_struct):
         for i, (_, row) in enumerate(top_struct.iterrows(), start=1):
-            lines.append(f"{i}. {_listing_note(row, 'structural')}")
+            lines.append(f"{i}. {anomaly_listing_note(row, 'structural')}")
     else:
         lines.append("_(no structural-only flags this run)_")
 

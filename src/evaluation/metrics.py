@@ -77,6 +77,28 @@ def error_by_segment(
     return agg.round(2)
 
 
+def gain_importance_table(model, top_n: int | None = 15) -> pd.Series:
+    """Compute gain-based LightGBM feature importance as % of total gain.
+
+    Gain-based (loss reduction), not split-count -- split-count inflates
+    high-cardinality features and continuous ones regardless of real
+    predictive value.
+
+    Args:
+        model: A fitted LightGBM sklearn wrapper (must expose `.booster_`).
+        top_n: If given, only the top N features (by gain) are returned.
+
+    Returns:
+        pd.Series: Feature name -> % of total gain, sorted descending.
+    """
+    gain = model.booster_.feature_importance(importance_type="gain")
+    imp = pd.Series(gain, index=model.booster_.feature_name())
+    imp = (imp / imp.sum() * 100).sort_values(ascending=False)
+    if top_n is not None:
+        imp = imp.head(top_n)
+    return imp
+
+
 def coverage(price_actual: np.ndarray, lo_dollar: np.ndarray, hi_dollar: np.ndarray) -> float:
     """Compute empirical coverage: fraction of actuals falling inside [lo, hi].
 

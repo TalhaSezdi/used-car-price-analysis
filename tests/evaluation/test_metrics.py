@@ -8,6 +8,7 @@ from src.evaluation.metrics import (
     coverage,
     coverage_by_segment,
     error_by_segment,
+    gain_importance_table,
     metrics_table,
 )
 
@@ -78,3 +79,29 @@ def test_coverage_by_segment_groups_correctly():
     assert result.loc["a", "coverage"] == 1.0
     assert result.loc["b", "coverage"] == 0.0
     assert result.loc["a", "count"] == 2
+
+
+def test_gain_importance_table_sums_to_100_and_sorted_descending():
+    import lightgbm as lgb
+
+    rng = np.random.RandomState(42)
+    X = pd.DataFrame({"a": rng.uniform(0, 1, 200), "b": rng.uniform(0, 1, 200)})
+    y = X["a"] * 10 + rng.normal(0, 0.01, 200)  # "a" should dominate gain
+    model = lgb.LGBMRegressor(n_estimators=20, verbose=-1).fit(X, y)
+
+    imp = gain_importance_table(model, top_n=None)
+    assert abs(imp.sum() - 100.0) < 1e-6
+    assert imp.index[0] == "a"
+    assert list(imp.values) == sorted(imp.values, reverse=True)
+
+
+def test_gain_importance_table_respects_top_n():
+    import lightgbm as lgb
+
+    rng = np.random.RandomState(42)
+    X = pd.DataFrame({f"f{i}": rng.uniform(0, 1, 100) for i in range(5)})
+    y = pd.Series(rng.uniform(0, 1, 100))
+    model = lgb.LGBMRegressor(n_estimators=10, verbose=-1).fit(X, y)
+
+    imp = gain_importance_table(model, top_n=2)
+    assert len(imp) == 2

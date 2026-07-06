@@ -33,12 +33,14 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
+from src.config import PRICE_SEGMENT_BINS, PRICE_SEGMENT_LABELS
 from src.models.dataset import (
     build_split, NUMERIC_FEATURES, LOW_CARD_FEATURES, HIGH_CARD_FEATURES,
 )
 from src.models.encoders import FeaturePreprocessor
 from src.models.train import train_lgbm
-from src.evaluation.metrics import metrics_table, error_by_segment
+from src.evaluation.metrics import metrics_table, error_by_segment, gain_importance_table
+from src.evaluation.reporting import desc_ablation_verdict, replace_doc_section
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -103,10 +105,7 @@ def main() -> None:
         logger.info("%s: %s", label, model.metrics)
 
         if label == "with desc_* features":
-            gain = model.model.booster_.feature_importance(importance_type="gain")
-            names = model.model.booster_.feature_name()
-            imp = pd.Series(gain, index=names)
-            imp = imp / imp.sum() * 100
+            imp = gain_importance_table(model.model, top_n=None)
             gain_desc = imp[imp.index.isin(DESC_FEATURES)].sort_values(ascending=False)
             preds_ext = model.predictions
 
@@ -118,9 +117,7 @@ def main() -> None:
 
     # --- Error by price segment, with-desc model (targets the 6C tail) ---
     test_df = df.loc[split.X_test.index].copy()
-    price_bins = pd.cut(test_df["price"],
-                        [0, 5000, 10000, 20000, 50000, 150000],
-                        labels=["<5k", "5-10k", "10-20k", "20-50k", "50-150k"])
+    price_bins = pd.cut(test_df["price"], PRICE_SEGMENT_BINS, labels=PRICE_SEGMENT_LABELS)
     err_price = error_by_segment(y_test.values, preds_ext, price_bins, price_test)
     print("\n=== Error by price segment (with-desc model) ===")
     print(err_price.to_string())
@@ -137,33 +134,7 @@ def main() -> None:
 
 def write_results(comparison, gain_desc, err_price, rmse_base, rmse_ext, mape_base, mape_ext, pct_rmse) -> None:
     total_gain = gain_desc.sum()
-    if pct_rmse < -0.5 and mape_ext < mape_base:
-        verdict = (
-            f"**Verdict: real improvement.** RMSE drops {abs(pct_rmse):.2f}% "
-            f"(${rmse_base:,.0f} -> ${rmse_ext:,.0f}), MAPE improves "
-            f"({mape_base:.2f}% -> {mape_ext:.2f}%). desc_* features carry "
-            f"{total_gain:.2f}% of total gain -- a real, if modest, signal. "
-            "Recommendation: adopt as default features (separate follow-up step, "
-            "requires re-rippling Phase 3/6 metrics)."
-        )
-    elif total_gain < 0.5:
-        verdict = (
-            f"**Verdict: negative result.** desc_* features carry only "
-            f"{total_gain:.2f}% of total gain and RMSE moved {pct_rmse:+.2f}% "
-            "(noise-level). The trim/equipment keyword signal, once boiled down "
-            "to 3 leakage-free numeric features, does not add information beyond "
-            "what manufacturer/model/year/odometer/target-encoding already "
-            "captures. Recorded as a negative result -- exactly like Phase 6C's "
-            "gain-importance check. The columns stay in cleaned.parquet but are "
-            "NOT added to the default feature list."
-        )
-    else:
-        verdict = (
-            f"**Verdict: mixed / inconclusive.** RMSE moved {pct_rmse:+.2f}% and "
-            f"desc_* features carry {total_gain:.2f}% of gain -- some signal, but "
-            "not a clear win on the headline metrics. Not adopted as default; "
-            "documented as a partial/negative result."
-        )
+    verdict = desc_ablation_verdict(rmse_base, rmse_ext, mape_base, mape_ext, pct_rmse, total_gain)
 
     lines = [
         "## 7B. Description trim/equipment features\n",
@@ -184,12 +155,9 @@ def write_results(comparison, gain_desc, err_price, rmse_base, rmse_ext, mape_ba
         err_price.to_markdown(),
         "\n" + verdict + "\n",
     ]
-    existing = RESULTS.read_text(encoding="utf-8")
-    header = "## 7B. Description trim/equipment features"
-    if header in existing:
-        existing = existing.split(header)[0]
-    existing = existing.rstrip("\n") + "\n\n"
-    RESULTS.write_text(existing + "\n".join(lines), encoding="utf-8")
+    replace_doc_section(
+        RESULTS, "## 7B. Description trim/equipment features", "\n".join(lines)
+    )
 
 
 if __name__ == "__main__":

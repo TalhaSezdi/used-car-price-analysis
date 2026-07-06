@@ -29,15 +29,17 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
+from src.config import AGE_BUCKET_BINS, AGE_BUCKET_LABELS, PRICE_SEGMENT_BINS, PRICE_SEGMENT_LABELS
 from src.models.dataset import (
     build_split, split_calibration,
     NUMERIC_FEATURES, LOW_CARD_FEATURES, HIGH_CARD_FEATURES,
 )
 from src.models.encoders import FeaturePreprocessor
 from src.models.intervals import MondrianConformalIntervalModel, fit_median_model
-from src.anomaly.detector import ResidualAnomalyDetector
+from src.anomaly.detector import ResidualAnomalyDetector, is_strong_residual
 from src.evaluation import plots
 from src.evaluation.metrics import coverage, coverage_by_segment
+from src.evaluation.reporting import mondrian_segment_verdict, replace_doc_section
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -129,11 +131,9 @@ def main() -> None:
 
     # --- Coverage + width by segment: standard vs Mondrian ---
     test_df = df.loc[split.X_test.index].copy()
-    age_bins = pd.cut(test_df["age"], [0, 3, 6, 10, 15, 60],
-                      labels=["0-3yr", "4-6yr", "7-10yr", "11-15yr", "16+yr"])
-    price_bins = pd.cut(test_df["price"],
-                        [0, 5000, 10000, 20000, 50000, 150000],
-                        labels=["<5k", "5-10k", "10-20k", "20-50k", "50-150k"])
+    age_bins = pd.cut(test_df["age"], AGE_BUCKET_BINS,
+                      labels=[label + "yr" for label in AGE_BUCKET_LABELS])
+    price_bins = pd.cut(test_df["price"], PRICE_SEGMENT_BINS, labels=PRICE_SEGMENT_LABELS)
 
     std_by_price = coverage_by_segment(price_test, s_lo90, s_hi90, price_bins)
     mon_by_price = coverage_by_segment(price_test, m_lo90, m_hi90, price_bins)
@@ -174,7 +174,7 @@ def main() -> None:
     abs_pct = np.abs(
         (price_test - np.expm1(pred_med_log)) / np.expm1(pred_med_log) * 100
     )
-    strong_resid = (abs_z > Z_STRONG) & (abs_pct > PCT_STRONG)
+    strong_resid = is_strong_residual(abs_z, abs_pct, z_strong=Z_STRONG, pct_strong=PCT_STRONG)
 
     flag_90 = (price_test < m_lo90) | (price_test > m_hi90)
     flag_99 = (price_test < m_lo99) | (price_test > m_hi99)
@@ -203,48 +203,6 @@ def main() -> None:
         mondrian_corrections_90=cqr_90.corrections_,
     )
     logger.info("Results written to %s", RESULTS)
-
-
-def _segment_verdict(seg_compare: pd.DataFrame) -> str:
-    """Data-driven verdict on whether Mondrian closed the 6B coverage gap.
-
-    Written from the numbers each run, not from a template that asserts success
-    regardless of outcome.
-    """
-    std_worst = seg_compare["standard_coverage"].min()
-    std_worst_seg = seg_compare["standard_coverage"].idxmin()
-    mon_worst = seg_compare["mondrian_coverage"].min()
-    mon_worst_seg = seg_compare["mondrian_coverage"].idxmin()
-
-    if mon_worst >= 0.85:
-        headline = (
-            f"**Verdict: the 6B gap is materially closed.** Standard CQR's worst "
-            f"actual-price segment was {std_worst:.1%} ({std_worst_seg}); Mondrian's "
-            f"worst is {mon_worst:.1%} ({mon_worst_seg}) -- within 5 points of the "
-            "90% target in every segment."
-        )
-    elif mon_worst > std_worst + 0.03:
-        headline = (
-            f"**Verdict: improved, not fully closed.** Standard CQR's worst "
-            f"actual-price segment was {std_worst:.1%} ({std_worst_seg}); Mondrian "
-            f"lifts the floor to {mon_worst:.1%} ({mon_worst_seg}). The remaining gap "
-            "is expected: Mondrian guarantees coverage per PREDICTED-price bin, while "
-            "this table slices by ACTUAL price -- where the model badly mispredicts "
-            "(junk-heavy cheap listings), rows land in the wrong bin and the per-bin "
-            "guarantee does not transfer fully."
-        )
-    else:
-        headline = (
-            f"**Verdict: Mondrian did NOT materially improve ACTUAL-price-segment "
-            f"coverage** (worst segment {std_worst:.1%} -> {mon_worst:.1%}). The "
-            "root-cause probe (`scripts/probe_mondrian_conditional_coverage.py`) "
-            "shows why -- see the root-cause subsection below. Short version: the "
-            "guarantee Mondrian actually makes (coverage per PREDICTED-price bin) "
-            "holds at 89-91% in every bin; the actual-price tail failure is caused "
-            "by point-model bias on rare expensive trims, which no calibration "
-            "scheme can repair."
-        )
-    return headline
 
 
 def write_results(
@@ -285,7 +243,7 @@ def write_results(
         "own; the conformal step is what earns the guarantee.\n",
         "### 90% coverage by ACTUAL price segment: standard vs Mondrian\n",
         seg_compare.round(4).to_markdown(),
-        "\n" + _segment_verdict(seg_compare) + "\n",
+        "\n" + mondrian_segment_verdict(seg_compare) + "\n",
         "### Root cause: why the actual-price tails stay under-covered\n",
         "Probe: `scripts/probe_mondrian_conditional_coverage.py` (numbers below are "
         "from its recorded run; the probe is deterministic and re-runnable).\n",
@@ -340,13 +298,11 @@ def write_results(
         "rewritten; for a production system the recommended flag is 'outside the "
         "Mondrian 99% interval', with the MAD-z tiers kept as a cross-check.\n",
     ]
-    existing = RESULTS.read_text(encoding="utf-8")
-    for header in ("## 6B/6C. Prediction intervals", "## 6B. Prediction intervals"):
-        if header in existing:
-            existing = existing.split(header)[0]
-            break
-    existing = existing.rstrip("\n") + "\n\n"
-    RESULTS.write_text(existing + "\n".join(lines), encoding="utf-8")
+    replace_doc_section(
+        RESULTS,
+        ["## 6B/6C. Prediction intervals", "## 6B. Prediction intervals"],
+        "\n".join(lines),
+    )
 
 
 if __name__ == "__main__":

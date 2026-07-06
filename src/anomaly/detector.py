@@ -131,3 +131,150 @@ class IsolationForestDetector:
             "if_score": if_score,
             "if_flag": if_flag,
         }, index=X_numeric.index)
+
+
+def in_sample_residual_std(
+    X: pd.DataFrame,
+    y: pd.Series,
+    numeric_cols: list[str],
+    low_card_cols: list[str],
+    high_card_cols: list[str],
+    n_estimators: int = 600,
+) -> float:
+    """Fit one LightGBM on ALL rows and predict in-sample -- the leakage-risk demo.
+
+    Compared against out-of-fold residual std (see models.train.oof_log_predictions)
+    to show how much smaller (optimistically biased) in-sample residuals are.
+
+    Args:
+        X: Feature matrix (all rows, e.g. from models.dataset.select_features).
+        y: Target (log-price scale).
+        numeric_cols: Numeric feature columns for FeaturePreprocessor.
+        low_card_cols: Low-cardinality categorical columns for FeaturePreprocessor.
+        high_card_cols: High-cardinality categorical columns for FeaturePreprocessor.
+        n_estimators: Fixed boosting round count (no early stopping).
+
+    Returns:
+        float: Standard deviation of the in-sample residual (log scale).
+    """
+    import lightgbm as lgb
+
+    from src.models.encoders import FeaturePreprocessor
+    from src.models.train import LGBM_PARAMS
+
+    prep = FeaturePreprocessor(
+        numeric_cols=numeric_cols,
+        low_card_cols=low_card_cols,
+        high_card_cols=high_card_cols,
+        high_card_method="target",
+    )
+    Xt = prep.fit_transform(X, y)
+    model = lgb.LGBMRegressor(n_estimators=n_estimators, **LGBM_PARAMS)
+    model.fit(Xt, y)
+    resid = y.values - model.predict(Xt)
+    return float(np.std(resid))
+
+
+def is_strong_residual(
+    abs_z: np.ndarray, abs_pct: np.ndarray, z_strong: float = 5.0, pct_strong: float = 85.0
+) -> np.ndarray:
+    """The STRONG-tier anomaly rule: extreme by BOTH z-score and pct deviation.
+
+    Survives the model-error confound: with a model MAPE of ~37%, a deviation
+    this large in both senses is far outside the plausible noise band.
+
+    Args:
+        abs_z: Absolute robust residual z-score per row.
+        abs_pct: Absolute residual percentage deviation per row.
+        z_strong: Z-score threshold.
+        pct_strong: Percentage-deviation threshold.
+
+    Returns:
+        np.ndarray: Boolean array, True where both thresholds are exceeded.
+    """
+    return (np.asarray(abs_z) > z_strong) & (np.asarray(abs_pct) > pct_strong)
+
+
+def tier_anomalies(
+    residual_z: pd.Series,
+    residual_flag: pd.Series,
+    residual_pct: pd.Series,
+    if_flag: pd.Series,
+    z_strong: float = 5.0,
+    pct_strong: float = 85.0,
+) -> pd.DataFrame:
+    """Tier residual + Isolation Forest flags into a single priority label per row.
+
+    STRONG (extreme by both z and pct) is far outside the plausible model-noise
+    band; MODERATE (flagged but not STRONG) may just be model error on a rare
+    car and needs human review rather than auto-action.
+
+    Args:
+        residual_z: Robust residual z-score per row.
+        residual_flag: Boolean residual flag per row (|z| > detector's threshold).
+        residual_pct: Residual percentage deviation per row.
+        if_flag: Boolean Isolation Forest flag per row.
+        z_strong: Z-score threshold for the STRONG tier.
+        pct_strong: Percentage-deviation threshold for the STRONG tier.
+
+    Returns:
+        pd.DataFrame: Columns `strong_resid`, `moderate_resid`, `priority`
+        (one of "HIGH (strong mispriced + structural)", "strong mispriced",
+        "moderate mispriced + structural", "moderate mispriced (may be model
+        error)", "structural only", or "normal").
+    """
+    abs_z = np.abs(residual_z)
+    abs_pct = np.abs(residual_pct)
+    strong_resid = is_strong_residual(abs_z, abs_pct, z_strong, pct_strong)
+    moderate_resid = np.asarray(residual_flag) & ~strong_resid
+    if_flag_arr = np.asarray(if_flag)
+
+    conditions = [
+        strong_resid & if_flag_arr,
+        strong_resid,
+        moderate_resid & if_flag_arr,
+        moderate_resid,
+        if_flag_arr,
+    ]
+    choices = [
+        "HIGH (strong mispriced + structural)",
+        "strong mispriced",
+        "moderate mispriced + structural",
+        "moderate mispriced (may be model error)",
+        "structural only",
+    ]
+    priority = np.select(conditions, choices, default="normal")
+    index = residual_z.index if isinstance(residual_z, pd.Series) else None
+    return pd.DataFrame({
+        "strong_resid": strong_resid,
+        "moderate_resid": moderate_resid,
+        "priority": priority,
+    }, index=index)
+
+
+def fat_tail_comparison(
+    abs_z: pd.Series, thresholds: list[float] = (3.5, 5, 7, 10)
+) -> list[tuple[float, int, float, float, float]]:
+    """Compare observed flag counts at each threshold against the Gaussian expectation.
+
+    Shows the residual distribution's tails are much fatter than a Gaussian
+    reference -- the flag threshold is an operational (capacity) choice, not a
+    rarity claim.
+
+    Args:
+        abs_z: Absolute robust residual z-score per row.
+        thresholds: Z-score thresholds to compare.
+
+    Returns:
+        list[tuple]: One tuple per threshold: (threshold, observed_count,
+        observed_pct, gaussian_expected_count, gaussian_expected_pct).
+    """
+    from scipy.stats import norm
+
+    n = len(abs_z)
+    result = []
+    for t in thresholds:
+        cnt = int((abs_z > t).sum())
+        gauss = 2 * norm.sf(t) * n
+        result.append((t, cnt, cnt / n * 100, gauss, gauss / n * 100))
+    return result

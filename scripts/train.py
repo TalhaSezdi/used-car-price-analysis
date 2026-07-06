@@ -22,6 +22,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
+from src.config import AGE_BUCKET_BINS, AGE_BUCKET_LABELS, PRICE_SEGMENT_BINS, PRICE_SEGMENT_LABELS
 from src.models.dataset import (
     build_split, NUMERIC_FEATURES, LOW_CARD_FEATURES, HIGH_CARD_FEATURES,
 )
@@ -30,7 +31,11 @@ from src.models.train import (
     train_linear, train_rf, train_lgbm,
     ablation_a1_raw_vs_log, ablation_a2_collinearity,
 )
-from src.evaluation.metrics import metrics_table, error_by_segment
+from src.evaluation.metrics import metrics_table, error_by_segment, gain_importance_table
+from src.evaluation.reporting import (
+    a1_verdict, a3_verdict, age_segment_observation, model_comparison_verdict,
+    price_segment_observation,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -154,10 +159,7 @@ def main() -> None:
     print(pd.Series(lgbm_final.metrics).round(2).to_string())
 
     # --- Feature importance from the FINAL model (deployed) ---
-    gain = lgbm_final.model.booster_.feature_importance(importance_type="gain")
-    imp = pd.Series(gain, index=lgbm_final.model.booster_.feature_name())
-    imp = (imp / imp.sum() * 100).sort_values(ascending=False)
-    top_features = imp.head(15).round(2)
+    top_features = gain_importance_table(lgbm_final.model, top_n=15).round(2)
     print("\n=== Top 15 Features (final LightGBM, % of total gain) ===")
     print(top_features.to_string())
 
@@ -165,15 +167,13 @@ def main() -> None:
     test_df = df.loc[split.X_test.index].copy()
     test_df["pred_dollar"] = np.expm1(lgbm_final.predictions)
 
-    age_bins = pd.cut(test_df["age"], [0, 3, 6, 10, 15, 60],
-                      labels=["0-3yr", "4-6yr", "7-10yr", "11-15yr", "16+yr"])
+    age_bins = pd.cut(test_df["age"], AGE_BUCKET_BINS,
+                      labels=[label + "yr" for label in AGE_BUCKET_LABELS])
     err_age = error_by_segment(
         split.y_test.values, lgbm_final.predictions, age_bins, split.price_test.values
     )
 
-    price_bins = pd.cut(test_df["price"],
-                        [0, 5000, 10000, 20000, 50000, 150000],
-                        labels=["<5k", "5-10k", "10-20k", "20-50k", "50-150k"])
+    price_bins = pd.cut(test_df["price"], PRICE_SEGMENT_BINS, labels=PRICE_SEGMENT_LABELS)
     err_price = error_by_segment(
         split.y_test.values, lgbm_final.predictions, price_bins, split.price_test.values
     )
@@ -189,7 +189,7 @@ def main() -> None:
 
     # --- Write results ---
     write_results(
-        val_comparison, top_features, imp,
+        val_comparison, top_features,
         err_age, err_price, err_brand,
         a1_table, a2, a3_table,
         lr_val, rf_val, lgbm_val, lgbm_final,
@@ -198,65 +198,8 @@ def main() -> None:
     logger.info("Results written to %s", RESULTS)
 
 
-def _a1_note(a1_table) -> str:
-    log_row = a1_table.loc["log1p(price)"]
-    raw_row = a1_table.loc["raw price"]
-    rmse_winner = "raw target" if raw_row["RMSE ($)"] < log_row["RMSE ($)"] else "log target"
-    mape_gap = raw_row["MAPE (%)"] - log_row["MAPE (%)"]
-    return (
-        f"**Key finding:** {rmse_winner} wins on RMSE (${raw_row['RMSE ($)']:,.0f} raw vs "
-        f"${log_row['RMSE ($)']:,.0f} log) and R2 ({raw_row['R2']:.2f} vs {log_row['R2']:.2f}) "
-        "because dollar-scale optimization favors getting expensive cars right. But MAPE "
-        f"tells the real story: raw target has {raw_row['MAPE (%)']:.0f}% average percentage "
-        f"error vs {log_row['MAPE (%)']:.0f}% for log -- a {mape_gap:.0f}-point gap. "
-        "Raw-target models systematically under-predict cheap cars (a $500 error on a $2k "
-        "car is 25% -- invisible to RMSE but devastating to MAPE). For a marketplace where "
-        "most listings are under $20k, MAPE is the business-relevant metric. We choose log "
-        "target.\n"
-    )
-
-
-def _a3_note(a3_table) -> str:
-    tgt = a3_table.loc["target_encoding"]
-    freq = a3_table.loc["frequency_encoding"]
-    drop = a3_table.loc["drop_model_column"]
-    winner = a3_table["RMSE ($)"].idxmin()
-    mape_winner = a3_table["MAPE (%)"].idxmin()
-    rmse_cost_drop = drop["RMSE ($)"] - tgt["RMSE ($)"]
-    mape_cost_drop = drop["MAPE (%)"] - tgt["MAPE (%)"]
-    return (
-        f"**Key finding:** with out-of-fold target encoding, **{winner}** wins on RMSE "
-        f"(${tgt['RMSE ($)']:,.0f} target vs ${freq['RMSE ($)']:,.0f} frequency vs "
-        f"${drop['RMSE ($)']:,.0f} drop), with R2={tgt['R2']:.2f}. "
-        f"{'Frequency encoding edges target on MAPE' if mape_winner == 'frequency_encoding' else 'Target encoding also leads on MAPE'} "
-        f"({freq['MAPE (%)']:.1f}% frequency vs {tgt['MAPE (%)']:.1f}% target) because it "
-        "captures the 'popular models are cheaper' signal cheaply. Dropping `model` costs "
-        f"~${rmse_cost_drop:,.0f} RMSE and ~{mape_cost_drop:.1f} MAPE points -- model "
-        "identity carries real trim-level signal (a Civic vs an Accord at equal age/mileage "
-        "is a $3-5k gap). **Lesson (from an earlier self-review):** an ablation is only "
-        "trustworthy if the pipeline under it is leakage-free -- a buggy version that "
-        "silently applied a leaky full-train mapping to training rows made target encoding "
-        "look worse than frequency/drop; fixing it to genuine OOF encoding reversed the "
-        "ranking.\n"
-    )
-
-
-def _model_comparison_note(lr_model, lgbm_model) -> str:
-    lr, lgb_m = lr_model.metrics, lgbm_model.metrics
-    pct_rmse = (lr["RMSE ($)"] - lgb_m["RMSE ($)"]) / lr["RMSE ($)"] * 100
-    pp_mape = lr["MAPE (%)"] - lgb_m["MAPE (%)"]
-    return (
-        f"**LightGBM** wins across all four metrics. The jump from Linear to LightGBM: "
-        f"RMSE drops {pct_rmse:.0f}% (${lr['RMSE ($)']:,.0f} -> ${lgb_m['RMSE ($)']:,.0f}), "
-        f"MAPE drops {pp_mape:.0f}pp ({lr['MAPE (%)']:.0f}% -> {lgb_m['MAPE (%)']:.0f}%), "
-        f"R2 rises {lr['R2']:.2f} -> {lgb_m['R2']:.2f}. Linear's {lr['MAPE (%)']:.0f}% MAPE "
-        "confirms the EDA prediction: the age x odometer interaction requires a "
-        "non-linear model.\n"
-    )
-
-
 def write_results(
-    val_comparison, top_features, all_imp,
+    val_comparison, top_features,
     err_age, err_price, err_brand,
     a1_table, a2, a3_table,
     lr_model, rf_model, lgbm_val_model, lgbm_final_model,
@@ -275,7 +218,7 @@ def write_results(
         "## Model comparison (validation set)\n",
         val_comparison.to_markdown(),
         "\n",
-        _model_comparison_note(lr_model, lgbm_val_model),
+        model_comparison_verdict(lr_model.metrics, lgbm_val_model.metrics),
         "> Methodology: high-card `model` uses **out-of-fold** KFold target encoding "
         "(a row is never encoded with its own label); LightGBM early-stops on a "
         "sub-validation split carved from TRAIN (not on the val or test set); "
@@ -305,45 +248,14 @@ def write_results(
     for feat, val in top_features.items():
         lines.append(f"| {feat} | {val} |")
 
-    highest_mae_age_seg = err_age["MAE"].idxmax()
-    highest_mape_age_seg = err_age["MAPE"].idxmax()
-    cheapest_seg = err_price["MAPE"].idxmax()
-    priciest_seg = "50-150k" if "50-150k" in err_price.index else err_price.index[0]
-
-    if highest_mae_age_seg == highest_mape_age_seg:
-        age_note = (
-            f"\n**Observation:** {highest_mae_age_seg} has both the highest MAE "
-            f"(${err_age.loc[highest_mae_age_seg, 'MAE']:,.0f}) and the highest MAPE "
-            f"({err_age.loc[highest_mape_age_seg, 'MAPE']:.0f}%) -- this bucket is the "
-            "model's weakest segment on both scales at once, not just proportionally. "
-            "It likely spans the widest price range (near-new budget cars to near-new "
-            "luxury cars at similar age), which is harder to pin down than a more "
-            "homogeneous older-car price band.\n"
-        )
-    else:
-        age_note = (
-            f"\n**Observation:** the highest-MAE age bucket is {highest_mae_age_seg} "
-            f"(${err_age.loc[highest_mae_age_seg, 'MAE']:,.0f}) because it spans the "
-            f"widest price range. The highest-MAPE bucket is {highest_mape_age_seg} "
-            f"({err_age.loc[highest_mape_age_seg, 'MAPE']:.0f}%) despite lower MAE "
-            f"(${err_age.loc[highest_mape_age_seg, 'MAE']:,.0f}) -- small dollar errors "
-            "are large percentages on cheap, old cars.\n"
-        )
-
     lines += [
         "\n## Error analysis (final LightGBM on test)\n",
         "### By age bucket\n",
         err_age.to_markdown(),
-        age_note,
+        age_segment_observation(err_age),
         "### By price segment\n",
         err_price.to_markdown(),
-        f"\n**Observation:** the {cheapest_seg} segment has "
-        f"{err_price.loc[cheapest_seg, 'MAPE']:.0f}% MAPE -- the model's weakest zone. "
-        "These are high-mileage, old vehicles where description/condition detail "
-        f"matters most. The {priciest_seg} segment has MAE "
-        f"${err_price.loc[priciest_seg, 'MAE']:,.0f} but only "
-        f"{err_price.loc[priciest_seg, 'MAPE']:.0f}% MAPE -- large dollar errors are "
-        "proportionally tolerable on expensive cars.\n",
+        price_segment_observation(err_price),
         "### By manufacturer (top 8)\n",
         err_brand.to_markdown(),
         "\n**Observation:** trucks/SUVs (Ram, GMC, Ford) have the highest errors. "
@@ -355,7 +267,7 @@ def write_results(
         "### A1: Log target vs raw target (LightGBM)\n",
         "**Question:** why train on log1p(price) instead of raw price?\n",
         a1_table.to_markdown(),
-        "\n" + _a1_note(a1_table),
+        "\n" + a1_verdict(a1_table),
         "### A2: Collinearity -- age only vs age + year\n",
         "**Question:** why drop `year` when we have `age`?\n",
         f"- With `age` only: age coefficient = {a2['age_only']['coef_age']:.6f}",
@@ -381,7 +293,7 @@ def write_results(
         "### A3: High-cardinality encoding for `model` (LightGBM)\n",
         "**Question:** target encoding vs frequency encoding vs dropping `model`?\n",
         a3_table.to_markdown(),
-        "\n" + _a3_note(a3_table),
+        "\n" + a3_verdict(a3_table),
     ]
 
     RESULTS.write_text("\n".join(lines), encoding="utf-8")
