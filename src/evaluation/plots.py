@@ -56,10 +56,16 @@ def plot_depreciation(df: pd.DataFrame, save_path: Path | str | None = None,
         .reset_index()
     )
 
+    full_age_range = pd.RangeIndex(int(sub["age"].min()), int(sub["age"].max()) + 1, name="age")
+
     fig, ax = plt.subplots(figsize=(11, 5.5))
     for man in top:
-        d = curve[curve["manufacturer"] == man]
-        ax.plot(d["age"], d["price"], marker="o", markersize=3, label=man)
+        d = (
+            curve[curve["manufacturer"] == man]
+            .set_index("age")
+            .reindex(full_age_range)
+        )
+        ax.plot(d.index, d["price"], marker="o", markersize=3, label=man)
     ax.set_title("Depreciation curves: median price vs age (top 6 manufacturers)")
     ax.set_xlabel("Vehicle age (years)")
     ax.set_ylabel("Median price ($)")
