@@ -66,17 +66,39 @@ class SplitData:
     price_train_full: pd.Series
 
 
-def select_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
+def select_features(
+    df: pd.DataFrame,
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
+) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
     """Assemble the model feature matrix X, log target y, and raw price.
 
     Single source of truth for feature selection so the train script and the
     anomaly-scoring script build identical X. Drops leakage / redundant columns
-    (VIN, region, lat/long, year collinear with age, raw price, description).
+    (VIN, region, lat/long, year collinear with age, raw price, description)
+    by using a whitelist of features to keep, rather than a blacklist of
+    columns to drop.
+
+    Args:
+        df: Cleaned + feature-engineered dataset.
+        numeric_features: Numeric feature columns to keep. Defaults to a copy
+            of NUMERIC_FEATURES if None.
+        categorical_features: Categorical feature columns to keep. Defaults
+            to a copy of CATEGORICAL_FEATURES if None.
+
+    Returns:
+        tuple[pd.DataFrame, pd.Series, pd.Series]: (X, y, raw_price) where y
+        is `log_price` and raw_price is the original dollar `price`.
     """
+    numeric_features = numeric_features if numeric_features is not None else NUMERIC_FEATURES
+    categorical_features = (
+        categorical_features if categorical_features is not None else CATEGORICAL_FEATURES
+    )
+
     y = df[TARGET_COL].copy()
     raw_price = df[RAW_PRICE_COL].copy()
 
-    keep = [c for c in NUMERIC_FEATURES + CATEGORICAL_FEATURES if c in df.columns]
+    keep = [c for c in numeric_features + categorical_features if c in df.columns]
     X = df[keep].copy()
     return X, y, raw_price
 
