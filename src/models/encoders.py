@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 
-logger = logging.getLogger(__name__)
+from src.config import RANDOM_STATE
 
-RANDOM_STATE: int = 42
+logger = logging.getLogger(__name__)
 
 
 class SafeTargetEncoder(BaseEstimator, TransformerMixin):

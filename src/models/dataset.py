@@ -9,9 +9,10 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from src.config import RANDOM_STATE
+
 logger = logging.getLogger(__name__)
 
-RANDOM_STATE: int = 42
 TEST_SIZE: float = 0.20
 VAL_SIZE_OF_REMAINDER: float = 0.25  # 0.25 * 0.80 = 0.20 -> 60/20/20 overall
 

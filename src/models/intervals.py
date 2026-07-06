@@ -20,9 +20,9 @@ import logging
 import numpy as np
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+from src.config import RANDOM_STATE
 
-RANDOM_STATE: int = 42
+logger = logging.getLogger(__name__)
 
 
 def _quantile_params(alpha: float) -> dict:

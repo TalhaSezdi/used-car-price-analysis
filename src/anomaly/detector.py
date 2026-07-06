@@ -8,9 +8,10 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 
+from src.config import RANDOM_STATE
+
 logger = logging.getLogger(__name__)
 
-RANDOM_STATE: int = 42
 MAD_SCALE: float = 1.4826  # makes MAD a consistent estimator of std under normality
 
 

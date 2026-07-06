@@ -10,9 +10,9 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 
-logger = logging.getLogger(__name__)
+from src.config import RANDOM_STATE
 
-RANDOM_STATE: int = 42
+logger = logging.getLogger(__name__)
 
 
 @dataclass
