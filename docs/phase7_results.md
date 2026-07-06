@@ -56,7 +56,7 @@ future, larger, or differently-sourced dataset shows a bigger junk-listing probl
 | Model                |   RMSE ($) |   MAE ($) |   MAPE (%) |   R2 |
 |:---------------------|-----------:|----------:|-----------:|-----:|
 | baseline (no desc_*) |    6611.06 |   3361.01 |      36.9  | 0.76 |
-| with desc_* features |    6261.07 |   3149.15 |      32.34 | 0.78 |
+| with desc_* features |    6252.50 |   3142.81 |      32.40 | 0.78 |
 
 ### Gain share of desc_* features (with-desc model)
 
@@ -76,4 +76,4 @@ future, larger, or differently-sourced dataset shows a bigger junk-listing probl
 | 5-10k     |  1536.61 |  20.39 |   10378 |
 | <5k       |  1529.31 |  88.77 |    7738 |
 
-**Verdict: real improvement.** RMSE drops 5.29% ($6,611 -> $6,261), MAPE improves (36.90% -> 32.34%). desc_* features carry 8.40% of total gain -- a real, if modest, signal. Recommendation: adopt as default features (separate follow-up step, requires re-rippling Phase 3/6 metrics).
+**Verdict: real improvement.** RMSE drops 5.4% ($6,611 -> $6,253), MAPE improves (36.90% -> 32.40%). desc_* features carry 8.40% of total gain -- a real, if modest, signal. Recommendation: adopt as default features (separate follow-up step, requires re-rippling Phase 3/6 metrics).

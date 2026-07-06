@@ -35,8 +35,7 @@ class SafeTargetEncoder(BaseEstimator, TransformerMixin):
         self.global_mean_: float = 0.0
 
     def _smoothed_means(self, x_col: pd.Series, y: pd.Series) -> pd.Series:
-        stats = pd.DataFrame({"sum": y.groupby(x_col).sum(),
-                              "count": y.groupby(x_col).count()})
+        stats = y.groupby(x_col).agg(["sum", "count"])
         return (
             (stats["sum"] + self.smoothing * self.global_mean_)
             / (stats["count"] + self.smoothing)
@@ -146,6 +145,8 @@ class FeaturePreprocessor(BaseEstimator, TransformerMixin):
         X = self._impute_numeric(X)
 
         hc = [c for c in self.high_card_cols if c in X.columns]
+        for col in hc:
+            X[col] = X[col].fillna("missing")
         if self.high_card_method == "target" and y is not None and hc:
             self.encoder_ = SafeTargetEncoder(cols=hc)
             X = self.encoder_.fit_transform(X, y)  # OOF, no self-leakage
@@ -160,6 +161,9 @@ class FeaturePreprocessor(BaseEstimator, TransformerMixin):
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = self._impute_numeric(X)
+        hc = [c for c in self.high_card_cols if c in X.columns]
+        for col in hc:
+            X[col] = X[col].fillna("missing")
         if self.encoder_ is not None:
             X = self.encoder_.transform(X)  # full-train mapping (safe on test)
         X = self._onehot(X)

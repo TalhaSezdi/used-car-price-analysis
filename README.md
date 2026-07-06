@@ -19,16 +19,16 @@ dolar ölçeğinde (log dönüşümü `expm1` ile geri alınmıştır).
 
 | Model | RMSE ($) | MAE ($) | MAPE (%) | R2 |
 |---|---|---|---|---|
-| Linear Regression | 8,046 | 4,346 | 55.6 | 0.64 |
-| Random Forest | 6,955 | 3,621 | 42.9 | 0.73 |
-| LightGBM | 6,261 | 3,149 | 32.3 | 0.78 |
+| Linear Regression | 8,060 | 4,349 | 55.6 | 0.64 |
+| Random Forest | 6,974 | 3,626 | 42.8 | 0.73 |
+| LightGBM | 6,253 | 3,143 | 32.4 | 0.78 |
 
 En iyi model LightGBM. Öznitelik önem sıralaması (gain tabanlı) beklentiyle uyumlu:
 yaş (%39), model (%16), kilometre (%10). Fiyat segmenti, marka ve yaş bazında hata
 analizi: [docs/phase3_results.md](docs/phase3_results.md).
 
 Nokta tahminine ek olarak, conformal quantile regression ile ilan başına %90 tahmin
-aralığı üretilir; marjinal kapsama %89.8, öznitelik-koşullu (Mondrian) kalibrasyonla
+aralığı üretilir; marjinal kapsama %90.2, öznitelik-koşullu (Mondrian) kalibrasyonla
 bin başına kapsama %89-91. Ayrıntı: [docs/phase6_results.md](docs/phase6_results.md).
 
 ## Öne çıkan bulgular
@@ -40,12 +40,12 @@ bin başına kapsama %89-91. Ayrıntı: [docs/phase6_results.md](docs/phase6_res
    modelin doğrusal modele göre %22 RMSE üstünlüğünün başlıca nedeni bu.
    ([figür](reports/figures/10_age_odometer_interaction.png))
 3. Hedefin log dönüşümü ucuz araçlardaki yüzde hatayı belirgin biçimde azaltıyor:
-   ham fiyat hedefi RMSE'de öndeyken ($5,765 vs $6,261) MAPE'de 13 puan geride
+   ham fiyat hedefi RMSE'de öndeyken ($5,774 vs $6,253) MAPE'de 13 puan geride
    (%45 vs %32). İlanların çoğu $20 binin altında olduğundan MAPE önceliklendirildi.
 4. Tek değişkenli "primler" büyük ölçüde yaş kaynaklı: VIN'li ilanların 1.98x fiyat
    primi, yaş sabitlenince 1.29x'e iniyor.
    ([figür](reports/figures/09_confound_check.png))
-5. En yüksek güvenli 49 şüpheli ilan, iki bağımsız sinyalin (fiyat artığı +
+5. En yüksek güvenli 48 şüpheli ilan, iki bağımsız sinyalin (fiyat artığı +
    Isolation Forest) kesişiminden geliyor. Tipik örüntü: ~$500'a listelenmiş 2-3
    yaşındaki pickup'lar ve $123,456 gibi klavye hatası fiyatlar.
    ([rapor](reports/suspicious_listings.csv))

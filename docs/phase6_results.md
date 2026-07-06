@@ -6,7 +6,7 @@
 > `desc_*` features as default (they predate that change and are not rerun here
 > since 7B's own ablation already retrained the canonical model separately --
 > see [phase7_results.md](phase7_results.md)). The current canonical LightGBM
-> test RMSE is $6,261 (post-7B), not the $6,611 referenced below; the
+> test RMSE is $6,253 (post-7B), not the $6,611 referenced below; the
 > contamination-rate and reach conclusions are not expected to depend on that
 > feature addition, but the exact dollar figures here are a historical
 > snapshot, not the live headline numbers.
@@ -82,31 +82,31 @@ Two calibration variants from the SAME quantile models:
 - **Standard CQR (6B):** one global correction. Guarantees marginal coverage only.
 - **Mondrian CQR (6C):** 5 corrections, one per bin of the predicted-band midpoint (log scale). Binning on the model's own output keeps the interval computable for any new listing at inference time -- binning on the actual price would be unavailable for a 'what is it worth' query and would break exchangeability.
 
-Corrections (log scale): standard 90% = 0.0644, standard 99% = 0.0974; Mondrian 90% per-bin = [0.0753, 0.0670, 0.0774, 0.0431, 0.0648] -- note the spread across bins: cheap-car bins need a much larger correction than expensive-car bins, which is exactly the heteroscedasticity one global correction ignores.
+Corrections (log scale): standard 90% = 0.0577, standard 99% = 0.0955; Mondrian 90% per-bin = [0.0678, 0.0593, 0.0694, 0.0415, 0.0578] -- note the spread across bins: cheap-car bins need a much larger correction than expensive-car bins, which is exactly the heteroscedasticity one global correction ignores.
 
 ### Overall coverage (test set, n=39,563)
 
 | Interval | Calibration | Empirical coverage | Nominal |
 |---|---|---|---|
-| 90% | raw quantile band (uncalibrated) | 0.8438 | 0.90 |
-| 90% | standard CQR (global) | 0.9018 | 0.90 |
-| 90% | **Mondrian (per-bin)** | **0.9013** | 0.90 |
+| 90% | raw quantile band (uncalibrated) | 0.8504 | 0.90 |
+| 90% | standard CQR (global) | 0.9025 | 0.90 |
+| 90% | **Mondrian (per-bin)** | **0.9022** | 0.90 |
 | 99% | standard CQR (global) | 0.9888 | 0.99 |
-| 99% | **Mondrian (per-bin)** | **0.9889** | 0.99 |
+| 99% | **Mondrian (per-bin)** | **0.9894** | 0.99 |
 
-**Reading this:** the raw quantile band is under-covered (84.4% vs 90% target) -- LightGBM's quantile loss is not exactly calibrated on its own; the conformal step is what earns the guarantee.
+**Reading this:** the raw quantile band is under-covered (85.0% vs 90% target) -- LightGBM's quantile loss is not exactly calibrated on its own; the conformal step is what earns the guarantee.
 
 ### 90% coverage by ACTUAL price segment: standard vs Mondrian
 
 | segment   |   standard_coverage |   mondrian_coverage |   mondrian_median_width |   count |
 |:----------|--------------------:|--------------------:|------------------------:|--------:|
-| <5k       |              0.8377 |              0.8409 |                 5098.37 |    7738 |
-| 5-10k     |              0.9314 |              0.9354 |                 7098.13 |   10378 |
-| 10-20k    |              0.9235 |              0.9206 |                11282.5  |   11327 |
-| 20-50k    |              0.9155 |              0.9096 |                20420.3  |    9191 |
-| 50-150k   |              0.7072 |              0.7061 |                40888.3  |     929 |
+| <5k       |              0.8376 |              0.8409 |                  5139.7 |    7738 |
+| 5-10k     |              0.9349 |              0.9384 |                  7139.5 |   10378 |
+| 10-20k    |              0.9251 |              0.9234 |                 11398.1 |   11327 |
+| 20-50k    |              0.9114 |              0.9055 |                 20400   |    9191 |
+| 50-150k   |              0.7169 |              0.7158 |                 40421.8 |     929 |
 
-**Verdict: Mondrian did NOT materially improve ACTUAL-price-segment coverage** (worst segment 70.7% -> 70.6%). The root-cause probe (`scripts/probe_mondrian_conditional_coverage.py`) shows why -- see the root-cause subsection below. Short version: the guarantee Mondrian actually makes (coverage per PREDICTED-price bin) holds at 89-91% in every bin; the actual-price tail failure is caused by point-model bias on rare expensive trims, which no calibration scheme can repair.
+**Verdict: Mondrian did NOT materially improve ACTUAL-price-segment coverage** (worst segment 71.7% -> 71.6%). The root-cause probe (`scripts/probe_mondrian_conditional_coverage.py`) shows why -- see the root-cause subsection below. Short version: the guarantee Mondrian actually makes (coverage per PREDICTED-price bin) holds at 89-91% in every bin; the actual-price tail failure is caused by point-model bias on rare expensive trims, which no calibration scheme can repair.
 
 ### Root cause: why the actual-price tails stay under-covered
 
@@ -123,11 +123,11 @@ Probe: `scripts/probe_mondrian_conditional_coverage.py` (numbers below are from 
 
 | segment   |   coverage |   median_width |   count |
 |:----------|-----------:|---------------:|--------:|
-| 0-3yr     |     0.8983 |       21288.9  |    5398 |
-| 4-6yr     |     0.9121 |       15008    |    7426 |
-| 7-10yr    |     0.8992 |        9476.29 |    9880 |
-| 11-15yr   |     0.9059 |        6575.69 |    8642 |
-| 16+yr     |     0.8913 |        7688.46 |    8217 |
+| 0-3yr     |     0.9001 |       21202.3  |    5398 |
+| 4-6yr     |     0.9125 |       15128.5  |    7426 |
+| 7-10yr    |     0.9004 |        9553.12 |    9880 |
+| 11-15yr   |     0.9052 |        6592.04 |    8642 |
+| 16+yr     |     0.893  |        7724.83 |    8217 |
 
 See [reports/figures/13_interval_width_vs_price.png](../reports/figures/13_interval_width_vs_price.png) -- left: interval width grows with price (honest heteroscedasticity); right: standard vs Mondrian coverage per price segment.
 
@@ -137,11 +137,11 @@ For each test-set listing: does the actual price fall outside its calibrated int
 
 | Signal | Count | Share of test |
 |---|---|---|
-| Outside Mondrian 90% interval | 3,904 | 9.87% |
-| Outside Mondrian 99% interval | 440 | 1.11% |
-| MAD-z, \|z\| > 3.5 (test-refit) | 1,880 | 4.75% |
-| MAD-z STRONG tier (test-refit) | 510 | 1.29% |
-| Overlap: 90% interval AND \|z\|>3.5 | 1,325 | - |
-| Overlap: 99% interval AND STRONG | 204 | - |
+| Outside Mondrian 90% interval | 3,871 | 9.78% |
+| Outside Mondrian 99% interval | 419 | 1.06% |
+| MAD-z, \|z\| > 3.5 (test-refit) | 1,868 | 4.72% |
+| MAD-z STRONG tier (test-refit) | 493 | 1.25% |
+| Overlap: 90% interval AND \|z\|>3.5 | 1,306 | - |
+| Overlap: 99% interval AND STRONG | 205 | - |
 
 **Framing:** the interval-exceedance flag now carries a per-listing, segment-aware threshold with a coverage guarantee behind it, which the global MAD-z band could not offer. The two signals agree on the clear cases (most STRONG-tier listings sit outside the 99% interval). Phase 4 outputs are NOT rewritten; for a production system the recommended flag is 'outside the Mondrian 99% interval', with the MAD-z tiers kept as a cross-check.
