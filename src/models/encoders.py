@@ -27,10 +27,17 @@ class SafeTargetEncoder(BaseEstimator, TransformerMixin):
     Smoothing shrinks rare-category means toward the global mean (Bayesian).
     """
 
-    def __init__(self, cols: list[str], n_folds: int = 5, smoothing: int = 20):
+    def __init__(
+        self,
+        cols: list[str],
+        n_folds: int = 5,
+        smoothing: int = 20,
+        random_state: int = RANDOM_STATE,
+    ):
         self.cols = cols
         self.n_folds = n_folds
         self.smoothing = smoothing
+        self.random_state = random_state
         self.mapping_: dict[str, dict] = {}
         self.global_mean_: float = 0.0
 
@@ -42,18 +49,34 @@ class SafeTargetEncoder(BaseEstimator, TransformerMixin):
         )
 
     def fit(self, X: pd.DataFrame, y: pd.Series) -> "SafeTargetEncoder":
-        """Fit the full-train mapping used by transform (for TEST data)."""
+        """Fit the full-train mapping used by transform (for TEST data).
+
+        Args:
+            X: Training feature matrix.
+            y: Training target.
+
+        Returns:
+            SafeTargetEncoder: self.
+        """
         self.global_mean_ = float(y.mean())
         for col in self.cols:
             self.mapping_[col] = self._smoothed_means(X[col], y).to_dict()
         return self
 
-    def fit_transform(self, X: pd.DataFrame, y: pd.Series = None) -> pd.DataFrame:
-        """Fit the mapping AND return OOF-encoded TRAIN data (no self-leakage)."""
+    def fit_transform(self, X: pd.DataFrame, y: pd.Series | None = None) -> pd.DataFrame:
+        """Fit the mapping AND return OOF-encoded TRAIN data (no self-leakage).
+
+        Args:
+            X: Training feature matrix.
+            y: Training target.
+
+        Returns:
+            pd.DataFrame: `X` with `self.cols` replaced by out-of-fold encodings.
+        """
         from sklearn.model_selection import KFold
 
         self.global_mean_ = float(y.mean())
-        kf = KFold(n_splits=self.n_folds, shuffle=True, random_state=RANDOM_STATE)
+        kf = KFold(n_splits=self.n_folds, shuffle=True, random_state=self.random_state)
         X_enc = X.copy()
 
         for col in self.cols:
@@ -73,6 +96,15 @@ class SafeTargetEncoder(BaseEstimator, TransformerMixin):
         return X_enc
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Encode using the full-train smoothed mapping (safe on TEST data).
+
+        Args:
+            X: Feature matrix to encode.
+
+        Returns:
+            pd.DataFrame: `X` with `self.cols` replaced. Unseen categories
+            fall back to the global mean.
+        """
         X = X.copy()
         for col in self.cols:
             X[col] = X[col].map(self.mapping_[col]).fillna(self.global_mean_)
@@ -87,12 +119,30 @@ class FrequencyEncoder(BaseEstimator, TransformerMixin):
         self.mapping_: dict[str, dict] = {}
 
     def fit(self, X: pd.DataFrame, y=None) -> "FrequencyEncoder":
+        """Compute each category's training-set frequency.
+
+        Args:
+            X: Training feature matrix.
+            y: Unused; present for scikit-learn API compatibility.
+
+        Returns:
+            FrequencyEncoder: self.
+        """
         for col in self.cols:
             freq = X[col].value_counts(normalize=True)
             self.mapping_[col] = freq.to_dict()
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Encode using the fitted frequency mapping.
+
+        Args:
+            X: Feature matrix to encode.
+
+        Returns:
+            pd.DataFrame: `X` with `self.cols` replaced. Unseen categories
+            fall back to 0.0.
+        """
         X = X.copy()
         for col in self.cols:
             X[col] = X[col].map(self.mapping_[col]).fillna(0.0)
@@ -102,12 +152,11 @@ class FrequencyEncoder(BaseEstimator, TransformerMixin):
 class FeaturePreprocessor(BaseEstimator, TransformerMixin):
     """Full preprocessing: impute, encode low-card, encode high-card.
 
-    Parameters
-    ----------
-    high_card_cols : columns for target/frequency encoding
-    low_card_cols : columns for one-hot encoding
-    numeric_cols : columns to impute with median + missing indicator
-    high_card_method : 'target' or 'frequency' (for ablation A3)
+    Args:
+        numeric_cols: Columns to impute with median + missing indicator.
+        low_card_cols: Columns for one-hot encoding.
+        high_card_cols: Columns for target/frequency encoding.
+        high_card_method: 'target' or 'frequency' (for ablation A3).
     """
 
     def __init__(
@@ -127,16 +176,38 @@ class FeaturePreprocessor(BaseEstimator, TransformerMixin):
         self.encoder_ = None
         self.train_columns_: list[str] = []
 
-    def fit(self, X: pd.DataFrame, y: pd.Series = None) -> "FeaturePreprocessor":
+    def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> "FeaturePreprocessor":
+        """Fit via fit_transform and discard the OOF-encoded output.
+
+        Warning:
+            Do NOT use fit() followed by transform() on the same training
+            data -- transform() applies the leaky full-train mapping, not
+            the out-of-fold encoding fit_transform() produces. Always call
+            fit_transform() directly on the training split.
+
+        Args:
+            X: Training feature matrix.
+            y: Training target.
+
+        Returns:
+            FeaturePreprocessor: self.
+        """
         self.fit_transform(X, y)
         return self
 
-    def fit_transform(self, X: pd.DataFrame, y: pd.Series = None) -> pd.DataFrame:
+    def fit_transform(self, X: pd.DataFrame, y: pd.Series | None = None) -> pd.DataFrame:
         """Fit all state and return the TRAIN matrix with OOF target encoding.
 
         Must be used for the training split. Using fit() + transform() on the
         same training data would apply the leaky full-train mapping instead of
         the out-of-fold encoding.
+
+        Args:
+            X: Training feature matrix.
+            y: Training target.
+
+        Returns:
+            pd.DataFrame: Fully encoded/imputed training matrix.
         """
         for col in self.numeric_cols:
             if col in X.columns:
@@ -144,9 +215,7 @@ class FeaturePreprocessor(BaseEstimator, TransformerMixin):
 
         X = self._impute_numeric(X)
 
-        hc = [c for c in self.high_card_cols if c in X.columns]
-        for col in hc:
-            X[col] = X[col].fillna("missing")
+        hc = self._fillna_high_card(X)
         if self.high_card_method == "target" and y is not None and hc:
             self.encoder_ = SafeTargetEncoder(cols=hc)
             X = self.encoder_.fit_transform(X, y)  # OOF, no self-leakage
@@ -160,10 +229,17 @@ class FeaturePreprocessor(BaseEstimator, TransformerMixin):
         return X
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Encode/impute using state fitted on TRAIN (safe on TEST data).
+
+        Args:
+            X: Feature matrix to transform.
+
+        Returns:
+            pd.DataFrame: Transformed matrix with columns aligned to the
+            training matrix's columns (missing ones added as all-zero).
+        """
         X = self._impute_numeric(X)
-        hc = [c for c in self.high_card_cols if c in X.columns]
-        for col in hc:
-            X[col] = X[col].fillna("missing")
+        self._fillna_high_card(X)
         if self.encoder_ is not None:
             X = self.encoder_.transform(X)  # full-train mapping (safe on test)
         X = self._onehot(X)
@@ -172,7 +248,30 @@ class FeaturePreprocessor(BaseEstimator, TransformerMixin):
                 X[col] = 0
         return X[self.train_columns_]
 
+    def _fillna_high_card(self, X: pd.DataFrame) -> list[str]:
+        """Fill missing values in the present high-cardinality columns.
+
+        Args:
+            X: Feature matrix, modified in place.
+
+        Returns:
+            list[str]: `self.high_card_cols` filtered to columns present in `X`.
+        """
+        hc = [c for c in self.high_card_cols if c in X.columns]
+        for col in hc:
+            X[col] = X[col].fillna("missing")
+        return hc
+
     def _impute_numeric(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Median-impute numeric columns, adding a missing-value indicator per column.
+
+        Args:
+            X: Feature matrix.
+
+        Returns:
+            pd.DataFrame: Copy of `X` with numeric columns imputed and
+            `{col}_missing` indicator columns added.
+        """
         X = X.copy()
         for col in self.numeric_cols:
             if col in X.columns:
@@ -182,6 +281,14 @@ class FeaturePreprocessor(BaseEstimator, TransformerMixin):
         return X
 
     def _onehot(self, X: pd.DataFrame) -> pd.DataFrame:
+        """One-hot encode the present low-cardinality columns (drop_first=True).
+
+        Args:
+            X: Feature matrix.
+
+        Returns:
+            pd.DataFrame: `X` with low-cardinality columns one-hot encoded.
+        """
         low = [c for c in self.low_card_cols if c in X.columns]
         if low:
             for col in low:
