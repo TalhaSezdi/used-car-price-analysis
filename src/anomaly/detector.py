@@ -30,6 +30,9 @@ class ResidualAnomalyDetector:
         -to-be-true / hidden defect.
       - positive -> listed ABOVE model value -> "overpriced": data-entry error,
         spam, or a genuinely rare/special trim.
+
+    Args:
+        z_threshold: Absolute robust-z above which a row is flagged.
     """
 
     def __init__(self, z_threshold: float = 3.5):
@@ -38,6 +41,15 @@ class ResidualAnomalyDetector:
         self.mad_: float = 0.0
 
     def fit(self, y_log: np.ndarray, pred_log: np.ndarray) -> "ResidualAnomalyDetector":
+        """Fit the residual median and MAD (median absolute deviation).
+
+        Args:
+            y_log: Actual target values (log-price scale).
+            pred_log: Predicted values (log-price scale), ideally out-of-fold.
+
+        Returns:
+            ResidualAnomalyDetector: self.
+        """
         residual = np.asarray(y_log) - np.asarray(pred_log)
         self.median_ = float(np.median(residual))
         self.mad_ = float(np.median(np.abs(residual - self.median_)))
@@ -46,6 +58,16 @@ class ResidualAnomalyDetector:
         return self
 
     def score(self, y_log: np.ndarray, pred_log: np.ndarray) -> pd.DataFrame:
+        """Compute the robust z-score, flag, and direction per row.
+
+        Args:
+            y_log: Actual target values (log-price scale).
+            pred_log: Predicted values (log-price scale).
+
+        Returns:
+            pd.DataFrame: Columns `residual_log`, `residual_z`,
+            `residual_flag`, `direction` ("underpriced"/"overpriced").
+        """
         residual = np.asarray(y_log) - np.asarray(pred_log)
         robust_z = (residual - self.median_) / (MAD_SCALE * self.mad_)
         flag = np.abs(robust_z) > self.z_threshold
@@ -69,6 +91,10 @@ class IsolationForestDetector:
     scales to ~200k rows in seconds via random subsampling; LOF is ~O(n^2) on
     distances and One-Class SVM is impractical at this size. IF also needs no
     feature scaling (it splits on random thresholds).
+
+    Args:
+        contamination: Expected proportion of anomalies (passed to IsolationForest).
+        n_estimators: Number of trees in the forest.
     """
 
     def __init__(self, contamination: float = 0.01, n_estimators: int = 200):
@@ -87,6 +113,13 @@ class IsolationForestDetector:
 
         NaNs are median-imputed (IF cannot take NaN). if_score is oriented so
         HIGHER = MORE anomalous.
+
+        Args:
+            X_numeric: Numeric feature matrix (structural features only).
+
+        Returns:
+            pd.DataFrame: Columns `if_score` (higher = more anomalous) and
+            `if_flag` (True where IsolationForest predicts an outlier).
         """
         self.feature_cols_ = list(X_numeric.columns)
         X = X_numeric.fillna(X_numeric.median())

@@ -12,10 +12,26 @@ AUDIT_OUT = Path(__file__).parents[2] / "docs" / "phase1_audit.md"
 
 
 def load_raw(path: Path = RAW_PATH) -> pd.DataFrame:
+    """Load the raw vehicles CSV.
+
+    Args:
+        path: Path to the raw CSV file.
+
+    Returns:
+        pd.DataFrame: Raw, unprocessed dataset.
+    """
     return pd.read_csv(path, low_memory=False)
 
 
 def missing_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute missing-value count and percentage per column, sorted descending.
+
+    Args:
+        df: DataFrame to summarize.
+
+    Returns:
+        pd.DataFrame: One row per column with `missing_count`, `missing_pct`.
+    """
     total = len(df)
     missing = df.isnull().sum()
     pct = (missing / total * 100).round(2)
@@ -26,10 +42,25 @@ def missing_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def numeric_summary(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Compute descriptive statistics (incl. tail percentiles) for numeric columns.
+
+    Args:
+        df: DataFrame to summarize.
+        cols: Numeric columns to describe.
+
+    Returns:
+        pd.DataFrame: `df[cols].describe()` output with 1st/5th/95th/99th
+        percentiles added.
+    """
     return df[cols].describe(percentiles=[0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99])
 
 
 def run_audit() -> None:
+    """Run the Phase 1 raw-data audit and write docs/phase1_audit.md.
+
+    Prints shape, missing-value summary, and numeric distributions; writes
+    the same plus top categorical value counts to AUDIT_OUT as markdown.
+    """
     print("Loading raw data...")
     df = load_raw()
 

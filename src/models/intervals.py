@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 def _quantile_params(alpha: float) -> dict:
+    """Build LightGBM params for a quantile regressor at the given alpha.
+
+    Args:
+        alpha: Quantile level.
+
+    Returns:
+        dict: A copy of LGBM_PARAMS with `objective="quantile"` and `alpha` set.
+    """
     from src.models.train import LGBM_PARAMS
 
     params = dict(LGBM_PARAMS)
@@ -69,6 +77,11 @@ class ConformalIntervalModel:
 
     Operates in log-price space (the model's native target scale); use
     predict_interval_dollar for the expm1-converted, business-facing output.
+
+    Args:
+        alpha: Miscoverage rate; the interval targets (1 - alpha) coverage
+            (e.g. alpha=0.10 for a 90% interval).
+        n_estimators: Max boosting rounds for the lower/upper quantile models.
     """
 
     def __init__(self, alpha: float = 0.10, n_estimators: int = LGBM_QUANTILE_N_ESTIMATORS):
@@ -87,6 +100,17 @@ class ConformalIntervalModel:
         X_calib: pd.DataFrame,
         y_calib: pd.Series,
     ) -> "ConformalIntervalModel":
+        """Fit lower/upper quantile models on TRAIN, calibrate on CALIB.
+
+        Args:
+            X_train: Training feature matrix.
+            y_train: Training target (log-price scale).
+            X_calib: Calibration feature matrix (disjoint from train and test).
+            y_calib: Calibration target (log-price scale).
+
+        Returns:
+            ConformalIntervalModel: self.
+        """
         self.model_lo_ = _fit_lgbm_quantile(
             X_train, y_train, self.lower_alpha, self.n_estimators
         )
@@ -141,6 +165,11 @@ class MondrianConformalIntervalModel(ConformalIntervalModel):
     unavailable at inference ("what is this car worth" has no price yet) and
     invalid (conditioning calibration on the ground truth breaks
     exchangeability).
+
+    Args:
+        alpha: Miscoverage rate; the interval targets (1 - alpha) coverage.
+        n_estimators: Max boosting rounds for the lower/upper quantile models.
+        n_bins: Number of midpoint-quantile bins to calibrate separately.
     """
 
     def __init__(self, alpha: float = 0.10, n_estimators: int = LGBM_QUANTILE_N_ESTIMATORS, n_bins: int = 5):
@@ -150,12 +179,27 @@ class MondrianConformalIntervalModel(ConformalIntervalModel):
         self.corrections_: np.ndarray | None = None
 
     def _midpoint(self, X: pd.DataFrame) -> np.ndarray:
+        """Raw quantile-band midpoint (log scale), used as the binning quantity.
+
+        Args:
+            X: Feature matrix.
+
+        Returns:
+            np.ndarray: (lo + hi) / 2 from the uncalibrated quantile band.
+        """
         lo, hi = self.raw_interval_log(X)
         return (lo + hi) / 2
 
     def _bin_index(self, mid: np.ndarray) -> np.ndarray:
-        # Interior edges only; values outside the calibration range fall into
-        # the first/last bin.
+        """Map midpoint values to a bin index in [0, n_bins - 1].
+
+        Args:
+            mid: Midpoint values (see `_midpoint`).
+
+        Returns:
+            np.ndarray: Bin index per value. Values outside the calibration
+            range clip into the first/last bin.
+        """
         return np.clip(np.digitize(mid, self.bin_edges_), 0, self.n_bins - 1)
 
     def fit(
@@ -165,6 +209,17 @@ class MondrianConformalIntervalModel(ConformalIntervalModel):
         X_calib: pd.DataFrame,
         y_calib: pd.Series,
     ) -> "MondrianConformalIntervalModel":
+        """Fit quantile models + a global correction, then per-bin corrections.
+
+        Args:
+            X_train: Training feature matrix.
+            y_train: Training target (log-price scale).
+            X_calib: Calibration feature matrix (disjoint from train and test).
+            y_calib: Calibration target (log-price scale).
+
+        Returns:
+            MondrianConformalIntervalModel: self.
+        """
         super().fit(X_train, y_train, X_calib, y_calib)  # fits quantile models + global correction
 
         mid_cal = self._midpoint(X_calib)
@@ -192,6 +247,14 @@ class MondrianConformalIntervalModel(ConformalIntervalModel):
         return self
 
     def predict_interval_log(self, X: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        """Calibrated (lo, hi) in log-price scale, using the per-bin correction.
+
+        Args:
+            X: Feature matrix.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: (lo, hi) in log-price scale.
+        """
         lo = self.model_lo_.predict(X)
         hi = self.model_hi_.predict(X)
         corr = self.corrections_[self._bin_index((lo + hi) / 2)]

@@ -38,6 +38,21 @@ CAST_STRIP_LOWER_COLS: list[str] = [
 
 @dataclass
 class CleaningReport:
+    """Row counts after each cleaning stage, plus free-text notes.
+
+    Attributes:
+        initial_rows: Row count before any cleaning.
+        rows_after_drop_cols: Row count after dropping non-predictive columns
+            (unaffected by column drops, tracked for pipeline visibility).
+        rows_after_price_filter: Row count after the price bound filter.
+        rows_after_year_filter: Row count after the year bound filter.
+        rows_after_odometer_filter: Row count after the odometer bound filter.
+        rows_after_title_filter: Row count after the title-status filter.
+        rows_after_dedup: Row count after VIN + fingerprint deduplication.
+        rows_after_core_nulls: Row count after dropping null core columns
+            (the final row count).
+        notes: Human-readable notes recorded per stage.
+    """
     initial_rows: int = 0
     rows_after_drop_cols: int = 0
     rows_after_price_filter: int = 0
@@ -49,6 +64,11 @@ class CleaningReport:
     notes: list[str] = field(default_factory=list)
 
     def retention_pct(self) -> float:
+        """Compute the final row count as a percentage of the initial count.
+
+        Returns:
+            float: Retention percentage, or 0.0 if initial_rows is 0.
+        """
         if self.initial_rows == 0:
             return 0.0
         return round(self.rows_after_core_nulls / self.initial_rows * 100, 2)
@@ -152,6 +172,14 @@ class DataCleaner:
         return df
 
     def _drop_cols(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Drop non-predictive columns present in `self.drop_cols`.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            pd.DataFrame: `df` without the dropped columns.
+        """
         cols_to_drop = [c for c in self.drop_cols if c in df.columns]
         df = df.drop(columns=cols_to_drop)
         self.report.rows_after_drop_cols = len(df)
@@ -159,6 +187,14 @@ class DataCleaner:
         return df
 
     def _cast_types(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Coerce numeric/date columns and strip+lowercase string columns.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            pd.DataFrame: `df` with types cast; unparseable values become NaN.
+        """
         df["price"] = pd.to_numeric(df["price"], errors="coerce")
         df["odometer"] = pd.to_numeric(df["odometer"], errors="coerce")
         df["year"] = pd.to_numeric(df["year"], errors="coerce")
@@ -170,6 +206,14 @@ class DataCleaner:
         return df
 
     def _filter_price(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep rows with `price` in [price_min, price_max] (inclusive).
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            pd.DataFrame: Filtered DataFrame.
+        """
         before = len(df)
         mask = df["price"].between(self.price_min, self.price_max)
         df = df[mask]
@@ -180,6 +224,14 @@ class DataCleaner:
         return df
 
     def _filter_year(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep rows with `year` in [year_min, year_max] (inclusive).
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            pd.DataFrame: Filtered DataFrame.
+        """
         before = len(df)
         mask = df["year"].between(self.year_min, self.year_max)
         df = df[mask]
@@ -190,6 +242,14 @@ class DataCleaner:
         return df
 
     def _filter_odometer(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep rows with `odometer` in [odometer_min, odometer_max] (inclusive).
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            pd.DataFrame: Filtered DataFrame.
+        """
         before = len(df)
         mask = df["odometer"].between(self.odometer_min, self.odometer_max)
         df = df[mask]
@@ -200,6 +260,15 @@ class DataCleaner:
         return df
 
     def _filter_title_status(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep rows with a valid title status, or a null title status.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            pd.DataFrame: Filtered DataFrame (unchanged if no `title_status`
+            column is present).
+        """
         if "title_status" not in df.columns:
             self.report.rows_after_title_filter = len(df)
             return df
@@ -246,6 +315,14 @@ class DataCleaner:
         return df
 
     def _drop_core_nulls(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Drop rows with a null in any of `self.core_cols`.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            pd.DataFrame: Filtered DataFrame.
+        """
         before = len(df)
         core = [c for c in self.core_cols if c in df.columns]
         df = df.dropna(subset=core)

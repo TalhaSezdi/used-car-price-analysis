@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TrainedModel:
+    """Container for a fitted model, its test predictions, and its metrics.
+
+    Attributes:
+        name: Human-readable model name (e.g. "LightGBM").
+        model: The fitted estimator object.
+        predictions: Predictions on the test set (log-price scale).
+        metrics: Dollar-scale metrics dict from evaluation.metrics.compute_metrics.
+    """
     name: str
     model: object
     predictions: np.ndarray
@@ -26,6 +34,18 @@ class TrainedModel:
 def train_linear(X_train: np.ndarray, y_train: np.ndarray,
                  X_test: np.ndarray, y_test: np.ndarray,
                  price_test: np.ndarray | None = None) -> TrainedModel:
+    """Fit a plain Linear Regression baseline and evaluate on the test set.
+
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target (log-price scale).
+        X_test: Test feature matrix.
+        y_test: Test target (log-price scale).
+        price_test: Optional raw dollar test prices (see compute_metrics).
+
+    Returns:
+        TrainedModel: Fitted model, predictions, and dollar-scale metrics.
+    """
     from src.evaluation.metrics import compute_metrics
     lr = LinearRegression()
     lr.fit(X_train, y_train)
@@ -38,6 +58,18 @@ def train_linear(X_train: np.ndarray, y_train: np.ndarray,
 def train_rf(X_train: np.ndarray, y_train: np.ndarray,
              X_test: np.ndarray, y_test: np.ndarray,
              price_test: np.ndarray | None = None) -> TrainedModel:
+    """Fit a Random Forest and evaluate on the test set.
+
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target (log-price scale).
+        X_test: Test feature matrix.
+        y_test: Test target (log-price scale).
+        price_test: Optional raw dollar test prices (see compute_metrics).
+
+    Returns:
+        TrainedModel: Fitted model, predictions, and dollar-scale metrics.
+    """
     from src.evaluation.metrics import compute_metrics
     rf = RandomForestRegressor(
         n_estimators=300,
@@ -116,6 +148,18 @@ def fit_lgbm_with_early_stopping(
 
 def train_lgbm(X_train, y_train, X_test, y_test,
                price_test: np.ndarray | None = None) -> TrainedModel:
+    """Fit LightGBM (with early stopping) and evaluate on the test set.
+
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target (log-price scale).
+        X_test: Test feature matrix.
+        y_test: Test target (log-price scale).
+        price_test: Optional raw dollar test prices (see compute_metrics).
+
+    Returns:
+        TrainedModel: Fitted model, predictions, and dollar-scale metrics.
+    """
     from src.evaluation.metrics import compute_metrics
 
     model = fit_lgbm_with_early_stopping(X_train, y_train, LGBM_PARAMS)
@@ -178,7 +222,20 @@ def ablation_a1_raw_vs_log(
     y_train_log: pd.Series, y_test_log: pd.Series,
     price_train: pd.Series, price_test: pd.Series,
 ) -> dict[str, dict]:
-    """A1: Compare log target vs raw target on the same LightGBM."""
+    """A1: Compare log1p(price) target vs raw price target on the same LightGBM.
+
+    Args:
+        X_train: Training feature matrix.
+        X_test: Test feature matrix.
+        y_train_log: Training target, log1p(price) scale.
+        y_test_log: Test target, log1p(price) scale.
+        price_train: Training target, raw dollar scale.
+        price_test: Test target, raw dollar scale.
+
+    Returns:
+        dict: {"log1p(price)": metrics, "raw price": metrics}, both in
+        dollar scale.
+    """
     from src.evaluation.metrics import compute_metrics
 
     m_log = fit_lgbm_with_early_stopping(X_train, y_train_log, LGBM_PARAMS)
@@ -206,7 +263,20 @@ def ablation_a2_collinearity(
     y_train: pd.Series, y_test: pd.Series,
     year_train: pd.Series, year_test: pd.Series,
 ) -> dict:
-    """A2: Linear model with age only vs age+year -- show VIF explosion."""
+    """A2: Linear model with age only vs age+year -- show collinearity's effect.
+
+    Args:
+        X_train: Training feature matrix (must include an `age` column).
+        X_test: Test feature matrix (must include an `age` column).
+        y_train: Training target (log-price scale).
+        y_test: Test target (log-price scale).
+        year_train: Training `year` values (added to X_train for the second variant).
+        year_test: Test `year` values (added to X_test for the second variant).
+
+    Returns:
+        dict: `{"age_only": {...}, "age_and_year": {...}}`, each with
+        `metrics` and the fitted `age` (and `year`) coefficients.
+    """
     from sklearn.linear_model import LinearRegression
     from src.evaluation.metrics import compute_metrics
 

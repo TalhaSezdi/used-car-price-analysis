@@ -48,9 +48,25 @@ _EQUIP_PATTERNS = [
 
 
 class DescriptionFeatureExtractor:
-    """Stateless row-wise transform: same output at fit time and inference time."""
+    """Stateless row-wise transform: same output at fit time and inference time.
+
+    No `fit` method exists by design -- there is nothing to fit (no
+    cross-row statistics, no target dependency), so `transform` alone is
+    always leakage-free and identical at train and inference time.
+    """
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add desc_trim_luxury, desc_equip_count, desc_len_log from `description`.
+
+        Args:
+            df: DataFrame with a `description` column (missing values treated
+                as empty strings).
+
+        Returns:
+            pd.DataFrame: Copy of `df` with the three new numeric columns
+            added; `description` itself is left untouched (the caller drops
+            it separately once features are extracted).
+        """
         df = df.copy()
         text = df["description"].fillna("").str.lower()
 
@@ -63,4 +79,12 @@ class DescriptionFeatureExtractor:
         return df
 
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Alias for `transform` (no fitting step -- see class docstring).
+
+        Args:
+            df: DataFrame with a `description` column.
+
+        Returns:
+            pd.DataFrame: See `transform`.
+        """
         return self.transform(df)
