@@ -151,8 +151,8 @@ def main() -> None:
         high_card_cols=[],
         high_card_method="target",
     )
-    X_train_no_model = split.X_train.drop(columns=HIGH_CARD_FEATURES, errors="ignore")
-    X_test_no_model = split.X_test.drop(columns=HIGH_CARD_FEATURES, errors="ignore")
+    X_train_no_model = split.X_train.drop(columns=HIGH_CARD_FEATURES)
+    X_test_no_model = split.X_test.drop(columns=HIGH_CARD_FEATURES)
     Xt_drop = prep_drop.fit_transform(X_train_no_model, split.y_train)
     Xv_drop = prep_drop.transform(X_test_no_model)
 
