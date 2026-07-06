@@ -15,13 +15,11 @@ env/
 venv/
 .venv/
 
-# --- Binary office / presentation files (kept out of version control) ---
-*.pptx
-*.ppt
-*.xlsx
-
 # --- OS / editor ---
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+
+# --- Claude Code local session state ---
+.claude/

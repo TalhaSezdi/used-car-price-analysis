@@ -6,7 +6,7 @@ trim signal but junk: non-vehicle items, "wanted to buy" ads, and commercial
 equipment vehicles the consumer-marketplace price model was never meant to price.
 
 This probe measures match count/share for three candidate rules and prints a
-random sample of each for manual precision review -- by project protocol, no
+random sample of each for manual precision review -- per CLAUDE.md protocol, no
 rule enters the cleaning pipeline before its precision is checked here and
 approved.
 

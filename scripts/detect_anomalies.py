@@ -364,7 +364,7 @@ def write_results(
         "may just be the model missing a rare trim -- do NOT auto-action.",
         "- **Structural only:** likely data-entry error -- ask the seller to confirm year "
         "and mileage before publishing.\n",
-        "> By design, these flags are a separate deliverable and are NOT fed back into "
+        "> Per CLAUDE.md, these flags are a separate deliverable and are NOT fed back into "
         "the Phase 3 training pipeline.\n",
     ]
 

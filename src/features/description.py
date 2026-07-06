@@ -1,6 +1,6 @@
 """Leakage-free features extracted from the free-text `description` field.
 
-Design constraints (Phase 7B; the project's leakage rule on `description`):
+Design constraints (Phase 7B, per CLAUDE.md's leakage rule on `description`):
   - NO numeric extraction of any kind (prices, MSRP, stock numbers, phone
     numbers stay out by construction) -- alphabetic keyword matching only.
   - Keyword lists are fixed a priori from domain knowledge, never derived from
