@@ -44,18 +44,23 @@ Project structure:
   - raw/ -> Original untouched data (vehicles.csv).
   - processed/ -> Cleaned / feature-engineered datasets (generated, not committed if large).
 - src/ -> Core modular packages.
+  - config.py -> Shared constants (RANDOM_STATE, price/age segment bins, anomaly z-threshold, interval alpha) -- single source of truth, imported by every module below instead of being redefined locally.
   - preprocess/ -> Data loading, cleaning, missing-value handling, outlier filtering, type casting.
   - features/ -> Feature engineering classes and transformers (age, encoders, buckets).
   - models/ -> Model definitions, training logic, and wrappers.
-  - evaluation/ -> Metrics, error analysis, and plotting utilities.
-  - anomaly/ -> Anomaly detection logic (residual-based flagging, isolation forest).
+  - evaluation/ -> Metrics, error analysis, plotting utilities, EDA insights, and markdown-report helpers (metrics.py, plots.py, insights.py, reporting.py).
+  - anomaly/ -> Anomaly detection logic (residual-based flagging, isolation forest, tiering, fat-tail diagnostics).
 - scripts/ -> Executable entry points (run in this order).
   - clean_data.py -> Run the full cleaning pipeline, write processed dataset.
   - run_eda.py -> Generate all EDA figures and docs/phase2_insights.md.
   - train.py -> Train 3 models + 3 ablations, error analysis, docs/phase3_results.md.
   - detect_anomalies.py -> OOF anomaly scoring, reports/suspicious_listings.csv.
+  - predict_intervals.py -> Conformal + Mondrian prediction intervals, docs/phase6_results.md (6B/6C).
+  - ablation_description_features.py -> Ablation A4 (description-derived features), docs/phase7_results.md (7B).
+  - Remaining scripts (check_consistency.py, probe_*.py) are diagnostic/one-off tools per the Problem Solving Framework (section 2), not part of the run order above.
 - notebooks/ -> EDA and presentation only. No business logic here.
 - reports/ -> Exported figures and the written business-insight findings.
+- tests/ -> pytest suite mirroring src/ (preprocess/, features/, models/, evaluation/, anomaly/, scripts/). Every src/ module gets its tests written in the same step it's changed, not deferred.
 
 ## 4. Project Goal & Data
 Build an end-to-end used-car analysis and price-prediction project on a large Craigslist listings dataset. The project has four deliverables, in order:
@@ -126,7 +131,7 @@ python -m venv env
 pip install -r requirements.txt
 ```
 
-Key dependencies: pandas, numpy, scikit-learn, lightgbm, matplotlib, seaborn, scipy, pyarrow. (ipykernel/nbformat/nbclient for notebook execution; xgboost and category_encoders were dropped -- never imported, LightGBM chosen as the GBDT and encoders are custom in src/models/encoders.py.)
+Key dependencies: pandas, numpy, scikit-learn, lightgbm, matplotlib, seaborn, scipy, pyarrow. (ipykernel/nbformat/nbclient for notebook execution; xgboost and category_encoders were dropped -- never imported, LightGBM chosen as the GBDT and encoders are custom in src/models/encoders.py.) Test suite: pytest, pytest-cov (`python -m pytest` from the repo root; tests/ mirrors src/, no dependency on the real 426k-row CSV).
 
 Caveat: this repository lives inside a OneDrive-synced folder with non-ASCII characters in the path. If venv or pip misbehaves (file locks, path errors), create the venv OUTSIDE OneDrive (e.g. `C:\venvs\usedcar`) and point to it — do not fight sync issues silently.
 

@@ -4,18 +4,24 @@
 ```
 Used car/
 ├── data/
-│   ├── raw/          vehicles.csv (moved here in Phase 1)
+│   ├── raw/          vehicles.csv (not committed; data/raw/README.md placeholder)
 │   └── processed/    cleaned.parquet (generated)
 ├── src/
+│   ├── config.py     shared constants (RANDOM_STATE, segment bins, thresholds)
 │   ├── preprocess/   cleaning pipeline
 │   ├── features/     feature engineering
-│   ├── models/       training & wrappers
-│   ├── evaluation/   metrics & plots
-│   └── anomaly/      residual-based + isolation forest
+│   ├── models/       training, encoders, conformal intervals
+│   ├── evaluation/   metrics, plots, EDA insights, markdown-report helpers
+│   └── anomaly/      residual-based + isolation forest, tiering, diagnostics
 ├── scripts/
 │   ├── clean_data.py
+│   ├── run_eda.py
 │   ├── train.py
-│   └── evaluate.py
+│   ├── detect_anomalies.py
+│   ├── predict_intervals.py
+│   ├── ablation_description_features.py
+│   └── check_consistency.py / probe_*.py   (diagnostic, not part of the run order)
+├── tests/            pytest suite mirroring src/ (Phase 8)
 ├── notebooks/        EDA + presentation
 ├── reports/          exported figures, suspicious listings report
 ├── docs/             this file
