@@ -117,7 +117,7 @@ src/           preprocess, features, models, evaluation, anomaly paketleri
 scripts/       calistirilabilir giris noktalari + ablation/probe betikleri
 notebooks/     presentation.ipynb (sunum)
 docs/          temizleme ve sonuc dokumanlari
-reports/       figurler, supheli ilan raporu, sunum dosyasi
+reports/       figurler ve supheli ilan raporu
 ```
 
 Dokümanlar: [veri denetimi](docs/phase1_audit.md) ·
