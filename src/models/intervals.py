@@ -20,7 +20,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from src.config import RANDOM_STATE
+from src.config import LGBM_QUANTILE_N_ESTIMATORS, RANDOM_STATE
 
 logger = logging.getLogger(__name__)
 
@@ -37,27 +37,31 @@ def _fit_lgbm_quantile(
     X_train: pd.DataFrame,
     y_train: pd.Series,
     alpha: float,
-    n_estimators: int = 3000,
+    n_estimators: int = LGBM_QUANTILE_N_ESTIMATORS,
     random_state: int = RANDOM_STATE,
 ):
-    """Fit one LightGBM quantile regressor, early-stopping on a TRAIN-carved split.
+    """Fit one LightGBM quantile regressor via the shared early-stopping helper.
 
-    Mirrors src.models.train._fit_lgbm: the validation split for early
-    stopping comes out of X_train, never out of calibration or test.
+    Delegates to src.models.train.fit_lgbm_with_early_stopping: the
+    validation split for early stopping comes out of X_train, never out of
+    calibration or test.
+
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target (log-price scale).
+        alpha: Quantile level (e.g. 0.05 for the lower band of a 90% interval).
+        n_estimators: Max boosting rounds.
+        random_state: Seed for the internal train-carved validation split.
+
+    Returns:
+        lightgbm.LGBMRegressor: The fitted quantile model.
     """
-    import lightgbm as lgb
-    from sklearn.model_selection import train_test_split
+    from src.models.train import fit_lgbm_with_early_stopping
 
-    X_tr, X_val, y_tr, y_val = train_test_split(
-        X_train, y_train, test_size=0.1, random_state=random_state
+    return fit_lgbm_with_early_stopping(
+        X_train, y_train, _quantile_params(alpha),
+        n_estimators=n_estimators, random_state=random_state,
     )
-    model = lgb.LGBMRegressor(n_estimators=n_estimators, **_quantile_params(alpha))
-    model.fit(
-        X_tr, y_tr,
-        eval_set=[(X_val, y_val)],
-        callbacks=[lgb.early_stopping(50, verbose=False)],
-    )
-    return model
 
 
 class ConformalIntervalModel:
@@ -67,7 +71,7 @@ class ConformalIntervalModel:
     predict_interval_dollar for the expm1-converted, business-facing output.
     """
 
-    def __init__(self, alpha: float = 0.10, n_estimators: int = 3000):
+    def __init__(self, alpha: float = 0.10, n_estimators: int = LGBM_QUANTILE_N_ESTIMATORS):
         self.alpha = alpha
         self.n_estimators = n_estimators
         self.lower_alpha = alpha / 2
@@ -139,7 +143,7 @@ class MondrianConformalIntervalModel(ConformalIntervalModel):
     exchangeability).
     """
 
-    def __init__(self, alpha: float = 0.10, n_estimators: int = 3000, n_bins: int = 5):
+    def __init__(self, alpha: float = 0.10, n_estimators: int = LGBM_QUANTILE_N_ESTIMATORS, n_bins: int = 5):
         super().__init__(alpha=alpha, n_estimators=n_estimators)
         self.n_bins = n_bins
         self.bin_edges_: np.ndarray | None = None
@@ -204,7 +208,7 @@ class MondrianConformalIntervalModel(ConformalIntervalModel):
         return np.expm1(lo), np.expm1(hi)
 
 
-def fit_median_model(X_train: pd.DataFrame, y_train: pd.Series, n_estimators: int = 3000):
+def fit_median_model(X_train: pd.DataFrame, y_train: pd.Series, n_estimators: int = LGBM_QUANTILE_N_ESTIMATORS):
     """Single alpha=0.5 quantile LightGBM, used as the point estimate for reporting."""
     return _fit_lgbm_quantile(X_train, y_train, alpha=0.5, n_estimators=n_estimators)
 

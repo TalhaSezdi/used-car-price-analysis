@@ -67,24 +67,49 @@ LGBM_PARAMS: dict = dict(
 )
 
 
-def _fit_lgbm(X_train, y_train, params: dict, n_estimators: int = 3000):
-    """Fit LightGBM with early stopping on a validation split carved from TRAIN.
+def fit_lgbm_with_early_stopping(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    params: dict,
+    n_estimators: int = 3000,
+    random_state: int = RANDOM_STATE,
+    test_size: float = 0.1,
+    early_stopping_rounds: int = 50,
+):
+    """Fit a LightGBM regressor with early stopping on a train-carved validation split.
+
+    Shared by the point-regression path (train_lgbm, ablations A1/A2) and the
+    quantile-regression path (models/intervals.py) -- the split/fit/early-stop
+    scaffolding is identical between the two; only `params` (objective/alpha)
+    differs.
 
     Critical: the test set is NEVER used for early stopping. Choosing the
     number of boosting rounds by watching the test loss would make the test
     metric optimistically biased (the test set stops being a clean holdout).
+
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target.
+        params: LightGBM hyperparameters (excluding n_estimators).
+        n_estimators: Max boosting rounds (early stopping typically stops sooner).
+        random_state: Seed for the internal train-carved validation split.
+        test_size: Fraction of X_train carved out for early-stopping validation.
+        early_stopping_rounds: Early-stopping patience, in rounds without improvement.
+
+    Returns:
+        lightgbm.LGBMRegressor: The fitted model.
     """
     import lightgbm as lgb
     from sklearn.model_selection import train_test_split
 
     X_tr, X_val, y_tr, y_val = train_test_split(
-        X_train, y_train, test_size=0.1, random_state=RANDOM_STATE
+        X_train, y_train, test_size=test_size, random_state=random_state
     )
     model = lgb.LGBMRegressor(n_estimators=n_estimators, **params)
     model.fit(
         X_tr, y_tr,
         eval_set=[(X_val, y_val)],
-        callbacks=[lgb.early_stopping(50, verbose=False)],
+        callbacks=[lgb.early_stopping(early_stopping_rounds, verbose=False)],
     )
     return model
 
@@ -93,7 +118,7 @@ def train_lgbm(X_train, y_train, X_test, y_test,
                price_test: np.ndarray | None = None) -> TrainedModel:
     from src.evaluation.metrics import compute_metrics
 
-    model = _fit_lgbm(X_train, y_train, LGBM_PARAMS)
+    model = fit_lgbm_with_early_stopping(X_train, y_train, LGBM_PARAMS)
     preds = model.predict(X_test)
     m = compute_metrics(y_test, preds, price_test)
     logger.info("LightGBM (best_iter=%s): %s", model.best_iteration_, m)
@@ -156,11 +181,11 @@ def ablation_a1_raw_vs_log(
     """A1: Compare log target vs raw target on the same LightGBM."""
     from src.evaluation.metrics import compute_metrics
 
-    m_log = _fit_lgbm(X_train, y_train_log, LGBM_PARAMS)
+    m_log = fit_lgbm_with_early_stopping(X_train, y_train_log, LGBM_PARAMS)
     pred_log = m_log.predict(X_test)
     metrics_log = compute_metrics(y_test_log, pred_log, price_test.values)
 
-    m_raw = _fit_lgbm(X_train, price_train, LGBM_PARAMS)
+    m_raw = fit_lgbm_with_early_stopping(X_train, price_train, LGBM_PARAMS)
     pred_raw = m_raw.predict(X_test)
     pred_raw_clipped = np.clip(pred_raw, 0, None)
     from sklearn.metrics import r2_score
