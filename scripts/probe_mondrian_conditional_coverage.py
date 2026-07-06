@@ -63,7 +63,7 @@ def corrections_for_bins(mid_cal, scores, edges, alpha):
 def main():
     df = pd.read_parquet(DATA)
     split = build_split(df)
-    X_fit, X_calib, y_fit, y_calib = split_calibration(split.X_train, split.y_train)
+    X_fit, X_calib, y_fit, y_calib = split_calibration(split.X_train_full, split.y_train_full)
 
     prep = FeaturePreprocessor(
         numeric_cols=NUMERIC_FEATURES, low_card_cols=LOW_CARD_FEATURES,

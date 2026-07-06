@@ -59,18 +59,20 @@ def _find_model_row(table: list[list[str]], model_name: str) -> Optional[list[st
 
 
 # ── source of truth: docs/phase3_results.md ────────────────────────────
+#
+# phase3_results.md now has two comparable tables:
+#   Table 1: model comparison on VALIDATION set (used for the selection decision)
+#   Table 2: final LightGBM on TEST set (single-row "unbiased headline" table)
+#
+# Ablation rows (A1 log1p, A3 target_encoding) are all evaluated on VAL, so they
+# must match Table 1's LightGBM row. Inline README dollar amounts, the phase6
+# snapshot note, and the phase7 "with desc_*" row all refer to the final test
+# metric and must match Table 2's LightGBM row.
 
-def load_phase3_truth(path: Path) -> dict[str, dict[str, float]]:
-    """Parse the model comparison table from phase3_results.md."""
-    text = path.read_text(encoding="utf-8")
-    tables = _extract_md_tables(text)
-    if not tables:
-        print(f"  WARN: no tables found in {path.name}")
-        return {}
-
-    header = tables[0][0]
-    truth: dict[str, dict[str, float]] = {}
-    for row in tables[0][1:]:
+def _parse_table(table: list[list[str]]) -> dict[str, dict[str, float]]:
+    header = table[0]
+    out: dict[str, dict[str, float]] = {}
+    for row in table[1:]:
         name = row[0].replace("**", "").strip()
         metrics: dict[str, float] = {}
         for i, col in enumerate(header[1:], start=1):
@@ -78,8 +80,33 @@ def load_phase3_truth(path: Path) -> dict[str, dict[str, float]]:
             val = _clean_num(row[i]) if i < len(row) else None
             if val is not None:
                 metrics[col_clean] = val
-        truth[name] = metrics
-    return truth
+        out[name] = metrics
+    return out
+
+
+def load_phase3_truth(path: Path) -> tuple[dict[str, dict[str, float]], dict[str, float]]:
+    """Return (val_truth, test_lgbm_truth) parsed from phase3_results.md.
+
+    val_truth: {model_name: metrics_dict} from the validation-set comparison.
+    test_lgbm_truth: metrics_dict for LightGBM on the test set (final headline).
+    """
+    text = path.read_text(encoding="utf-8")
+    tables = _extract_md_tables(text)
+    if not tables:
+        print(f"  WARN: no tables found in {path.name}")
+        return {}, {}
+
+    val_truth = _parse_table(tables[0])
+    # Table 2 is the single-row final headline table.
+    test_lgbm: dict[str, float] = {}
+    if len(tables) >= 2:
+        parsed = _parse_table(tables[1])
+        # first (only) model row -- allow "LightGBM (final)", "LightGBM", etc.
+        for name, metrics in parsed.items():
+            if "lightgbm" in name.lower():
+                test_lgbm = metrics
+                break
+    return val_truth, test_lgbm
 
 
 # ── checkers ──────────────────────────────────────────────────────────
@@ -94,8 +121,10 @@ def _check_value(label: str, expected: float, actual: float, tol: float = 0.5) -
         print(msg)
 
 
-def check_readme(truth: dict[str, dict[str, float]]) -> None:
-    """Compare README.md metric table against phase3 truth."""
+def check_readme(val_truth: dict[str, dict[str, float]],
+                 test_lgbm: dict[str, float]) -> None:
+    """README has two tables: val comparison (matches val_truth) and final
+    headline (matches test_lgbm's LightGBM row)."""
     readme = ROOT / "README.md"
     if not readme.exists():
         print("  WARN: README.md not found")
@@ -104,38 +133,66 @@ def check_readme(truth: dict[str, dict[str, float]]) -> None:
     text = readme.read_text(encoding="utf-8")
     tables = _extract_md_tables(text)
 
-    for model_name, expected in truth.items():
+    # Table with all three named models -> val comparison
+    for model_name, expected in val_truth.items():
         found = False
         for table in tables:
             row = _find_model_row(table, model_name)
             if row is None:
                 continue
+            # Skip tables that only have LightGBM (that's the final headline).
+            row_names = [r[0].replace("**", "").strip().lower() for r in table[1:]]
+            has_multiple = sum(1 for n in row_names if any(
+                m in n for m in ("linear", "forest", "lightgbm"))) > 1
+            if not has_multiple:
+                continue
             found = True
-            header = tables[tables.index(table)][0]
+            header = table[0]
             for i, col in enumerate(header[1:], start=1):
                 col_clean = col.replace("**", "").strip()
                 if col_clean in expected and i < len(row):
                     val = _clean_num(row[i])
                     if val is not None:
                         _check_value(
-                            f"README / {model_name} / {col_clean}",
+                            f"README val / {model_name} / {col_clean}",
                             expected[col_clean], val,
                         )
             break
         if not found:
-            print(f"  WARN: {model_name} not found in README tables")
+            print(f"  WARN: {model_name} not found in README val tables")
+
+    # Single-row LightGBM table -> final test headline
+    for table in tables:
+        row_names = [r[0].replace("**", "").strip().lower() for r in table[1:]]
+        has_only_lgbm = (
+            len(row_names) == 1 and "lightgbm" in row_names[0]
+        )
+        if not has_only_lgbm:
+            continue
+        row = table[1]
+        header = table[0]
+        for i, col in enumerate(header[1:], start=1):
+            col_clean = col.replace("**", "").strip()
+            if col_clean in test_lgbm and i < len(row):
+                val = _clean_num(row[i])
+                if val is not None:
+                    _check_value(
+                        f"README test / LightGBM / {col_clean}",
+                        test_lgbm[col_clean], val,
+                    )
+        break
 
 
-def check_phase7(truth: dict[str, dict[str, float]]) -> None:
-    """Check phase7_results.md references against phase3 truth."""
+def check_phase7(test_lgbm: dict[str, float]) -> None:
+    """phase7 'with desc_*' refits on 80% (train+val) and evaluates on test,
+    which is exactly what the final LightGBM does. So it must match test_lgbm."""
     path = ROOT / "docs" / "phase7_results.md"
     if not path.exists():
         return
 
     text = path.read_text(encoding="utf-8")
     tables = _extract_md_tables(text)
-    lgbm = truth.get("LightGBM", {})
-    if not lgbm:
+    if not test_lgbm:
         return
 
     for table in tables:
@@ -145,28 +202,22 @@ def check_phase7(truth: dict[str, dict[str, float]]) -> None:
         header = table[0]
         for i, col in enumerate(header[1:], start=1):
             col_clean = col.replace("**", "").strip()
-            if col_clean in lgbm and i < len(row):
+            if col_clean in test_lgbm and i < len(row):
                 val = _clean_num(row[i])
                 if val is not None:
                     _check_value(
                         f"phase7 'with desc_*' / {col_clean}",
-                        lgbm[col_clean], val,
+                        test_lgbm[col_clean], val,
                     )
         break
 
 
-def check_inline_numbers() -> None:
-    """Scan prose in README and docs for specific dollar/percentage references
-    that should match phase3 truth."""
-    phase3 = ROOT / "docs" / "phase3_results.md"
-    if not phase3.exists():
+def check_inline_numbers(test_lgbm: dict[str, float]) -> None:
+    """Scan prose in README for dollar amounts that should match the test-set
+    LightGBM RMSE (the "headline number" a reader will parse from prose)."""
+    if not test_lgbm:
         return
-    truth = load_phase3_truth(phase3)
-    lgbm = truth.get("LightGBM", {})
-    if not lgbm:
-        return
-
-    rmse = lgbm.get("RMSE ($)")
+    rmse = test_lgbm.get("RMSE ($)")
     readme = ROOT / "README.md"
     if not readme.exists():
         return
@@ -191,82 +242,50 @@ def check_inline_numbers() -> None:
                 )
 
 
-def check_phase6_snapshot_note() -> None:
-    """Verify phase6_results.md snapshot note references the current RMSE."""
+def check_phase6_snapshot_note(test_lgbm: dict[str, float]) -> None:
+    """Verify phase6_results.md snapshot note references the current test RMSE."""
     path = ROOT / "docs" / "phase6_results.md"
     if not path.exists():
         return
-    phase3 = ROOT / "docs" / "phase3_results.md"
-    truth = load_phase3_truth(phase3)
-    lgbm = truth.get("LightGBM", {})
-    rmse = lgbm.get("RMSE ($)")
+    rmse = test_lgbm.get("RMSE ($)")
     if rmse is None:
         return
 
     text = path.read_text(encoding="utf-8")
-    # look for "test RMSE is $X,XXX (post-7B)"
     m = re.search(r"test RMSE is \$(\d{1,3}(?:,\d{3})*)", text)
     if m:
         val = float(m.group(1).replace(",", ""))
         _check_value("phase6 snapshot note RMSE", rmse, val, tol=1.0)
 
 
-def check_ablation_a1() -> None:
-    """Cross-check A1 log target row matches the main LightGBM row."""
+def check_ablation_row(row_key: str, label: str,
+                       val_truth: dict[str, dict[str, float]]) -> None:
+    """A1 log1p and A3 target_encoding are both computed on the VAL set with
+    the same LightGBM pipeline as the val comparison table -- so they must
+    equal the val LightGBM row."""
     phase3 = ROOT / "docs" / "phase3_results.md"
     if not phase3.exists():
         return
+    lgbm_val = val_truth.get("LightGBM", {})
+    if not lgbm_val:
+        return
+
     text = phase3.read_text(encoding="utf-8")
     tables = _extract_md_tables(text)
 
-    main_truth = load_phase3_truth(phase3)
-    lgbm = main_truth.get("LightGBM", {})
-    if not lgbm:
-        return
-
     for table in tables:
-        row = _find_model_row(table, "log1p")
+        row = _find_model_row(table, row_key)
         if row is None:
             continue
         header = table[0]
         for i, col in enumerate(header[1:], start=1):
             col_clean = col.replace("**", "").strip()
-            if col_clean in lgbm and i < len(row):
+            if col_clean in lgbm_val and i < len(row):
                 val = _clean_num(row[i])
                 if val is not None:
                     _check_value(
-                        f"A1 log1p row / {col_clean} vs main LightGBM",
-                        lgbm[col_clean], val,
-                    )
-        break
-
-
-def check_a3_target_row() -> None:
-    """Cross-check A3 target_encoding row matches the main LightGBM row."""
-    phase3 = ROOT / "docs" / "phase3_results.md"
-    if not phase3.exists():
-        return
-    text = phase3.read_text(encoding="utf-8")
-    tables = _extract_md_tables(text)
-
-    main_truth = load_phase3_truth(phase3)
-    lgbm = main_truth.get("LightGBM", {})
-    if not lgbm:
-        return
-
-    for table in tables:
-        row = _find_model_row(table, "target_encoding")
-        if row is None:
-            continue
-        header = table[0]
-        for i, col in enumerate(header[1:], start=1):
-            col_clean = col.replace("**", "").strip()
-            if col_clean in lgbm and i < len(row):
-                val = _clean_num(row[i])
-                if val is not None:
-                    _check_value(
-                        f"A3 target_encoding / {col_clean} vs main LightGBM",
-                        lgbm[col_clean], val,
+                        f"{label} / {col_clean} vs val LightGBM",
+                        lgbm_val[col_clean], val,
                     )
         break
 
@@ -282,34 +301,36 @@ def main() -> None:
         print("ERROR: docs/phase3_results.md not found. Run train.py first.")
         sys.exit(1)
 
-    truth = load_phase3_truth(phase3)
-    if not truth:
-        print("ERROR: could not parse model comparison table.")
+    val_truth, test_lgbm = load_phase3_truth(phase3)
+    if not val_truth or not test_lgbm:
+        print("ERROR: could not parse val comparison and/or test headline tables.")
         sys.exit(1)
 
-    print("Parsed truth:")
-    for name, metrics in truth.items():
+    print("Parsed val comparison:")
+    for name, metrics in val_truth.items():
         vals = ", ".join(f"{k}={v}" for k, v in metrics.items())
         print(f"  {name}: {vals}")
+    print("Parsed final test LightGBM:")
+    print("  " + ", ".join(f"{k}={v}" for k, v in test_lgbm.items()))
     print()
 
-    print("[1] README.md vs phase3_results.md")
-    check_readme(truth)
+    print("[1] README.md tables vs phase3_results.md")
+    check_readme(val_truth, test_lgbm)
 
-    print("[2] phase7_results.md 'with desc_*' row vs phase3 LightGBM")
-    check_phase7(truth)
+    print("[2] phase7_results.md 'with desc_*' row vs test LightGBM")
+    check_phase7(test_lgbm)
 
-    print("[3] Inline dollar amounts in README")
-    check_inline_numbers()
+    print("[3] Inline dollar amounts in README vs test RMSE")
+    check_inline_numbers(test_lgbm)
 
-    print("[4] phase6_results.md snapshot note")
-    check_phase6_snapshot_note()
+    print("[4] phase6_results.md snapshot note vs test RMSE")
+    check_phase6_snapshot_note(test_lgbm)
 
-    print("[5] A1 ablation log1p row == main LightGBM")
-    check_ablation_a1()
+    print("[5] A1 ablation log1p row == val LightGBM")
+    check_ablation_row("log1p", "A1 log1p row", val_truth)
 
-    print("[6] A3 ablation target_encoding row == main LightGBM")
-    check_a3_target_row()
+    print("[6] A3 ablation target_encoding row == val LightGBM")
+    check_ablation_row("target_encoding", "A3 target_encoding", val_truth)
 
     print()
     if MISMATCHES:

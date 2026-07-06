@@ -64,8 +64,11 @@ def main() -> None:
     logger.info("Loaded %d rows", len(df))
 
     split = build_split(df)
+    # Use train+val (80%) as the training corpus so this script's calibration
+    # split and metrics reflect the same 80/20 setup the final headline model
+    # is trained on.
     X_fit, X_calib, y_fit, y_calib = split_calibration(
-        split.X_train, split.y_train, calib_size=CALIB_SIZE
+        split.X_train_full, split.y_train_full, calib_size=CALIB_SIZE
     )
     logger.info(
         "Train split for intervals: fit=%d, calib=%d, test=%d",

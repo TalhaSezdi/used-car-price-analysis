@@ -14,18 +14,34 @@ noktasıyla çalıştırılır. Not defterleri yalnızca sunum içindir.
 
 ## Sonuçlar
 
-Test seti: 39,563 ilan (%20, fiyat desiline göre tabakalı örnekleme). Metrikler
-dolar ölçeğinde (log dönüşümü `expm1` ile geri alınmıştır).
+Üç yollu tabakalı bölme (fiyat desili, seed 42): **train %60 (118,688) /
+validation %20 (39,563) / test %20 (39,563)**. Tüm model seçimi ve ablation
+kararları val setinde verilir; test seti yalnızca son adımda, seçilen modelin
+tarafsız hata tahmini için kullanılır. Metrikler dolar ölçeğinde (log
+dönüşümü `expm1` ile geri alınmıştır).
+
+### Model karşılaştırması (validation seti)
 
 | Model | RMSE ($) | MAE ($) | MAPE (%) | R2 |
 |---|---|---|---|---|
-| Linear Regression | 8,060 | 4,349 | 55.6 | 0.64 |
-| Random Forest | 6,974 | 3,626 | 42.8 | 0.73 |
-| LightGBM | 6,253 | 3,143 | 32.4 | 0.78 |
+| Linear Regression | 8,212 | 4,396 | 61.4 | 0.62 |
+| Random Forest | 6,867 | 3,672 | 45.0 | 0.73 |
+| LightGBM | 6,067 | 3,197 | 34.3 | 0.79 |
 
-En iyi model LightGBM. Öznitelik önem sıralaması (gain tabanlı) beklentiyle uyumlu:
-yaş (%39), model (%16), kilometre (%10). Fiyat segmenti, marka ve yaş bazında hata
-analizi: [docs/phase3_results.md](docs/phase3_results.md).
+LightGBM her metrikte açık ara kazanıyor -- final model olarak seçildi.
+
+### Final skor (test seti)
+
+Seçilen LightGBM, train + val (158,251 satır) üzerinde yeniden eğitildi ve dokunulmamış
+test setinde (39,563 satır) tek bir defa ölçüldü:
+
+| Model | RMSE ($) | MAE ($) | MAPE (%) | R2 |
+|---|---|---|---|---|
+| LightGBM (final) | 6,253 | 3,143 | 32.4 | 0.78 |
+
+Öznitelik önem sıralaması (gain tabanlı) beklentiyle uyumlu: yaş (%39), model
+(%16), kilometre (%10). Fiyat segmenti, marka ve yaş bazında hata analizi:
+[docs/phase3_results.md](docs/phase3_results.md).
 
 Nokta tahminine ek olarak, conformal quantile regression ile ilan başına %90 tahmin
 aralığı üretilir; marjinal kapsama %90.2, öznitelik-koşullu (Mondrian) kalibrasyonla
@@ -40,8 +56,8 @@ bin başına kapsama %89-91. Ayrıntı: [docs/phase6_results.md](docs/phase6_res
    modelin doğrusal modele göre %22 RMSE üstünlüğünün başlıca nedeni bu.
    ([figür](reports/figures/10_age_odometer_interaction.png))
 3. Hedefin log dönüşümü ucuz araçlardaki yüzde hatayı belirgin biçimde azaltıyor:
-   ham fiyat hedefi RMSE'de öndeyken ($5,774 vs $6,253) MAPE'de 13 puan geride
-   (%45 vs %32). İlanların çoğu $20 binin altında olduğundan MAPE önceliklendirildi.
+   ham fiyat hedefi RMSE'de öndeyken ($5,649 vs $6,067 val) MAPE'de 15 puan geride
+   (%49 vs %34). İlanların çoğu $20 binin altında olduğundan MAPE önceliklendirildi.
 4. Tek değişkenli "primler" büyük ölçüde yaş kaynaklı: VIN'li ilanların 1.98x fiyat
    primi, yaş sabitlenince 1.29x'e iniyor.
    ([figür](reports/figures/09_confound_check.png))

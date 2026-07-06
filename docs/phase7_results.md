@@ -55,25 +55,25 @@ future, larger, or differently-sourced dataset shows a bigger junk-listing probl
 
 | Model                |   RMSE ($) |   MAE ($) |   MAPE (%) |   R2 |
 |:---------------------|-----------:|----------:|-----------:|-----:|
-| baseline (no desc_*) |    6611.06 |   3361.01 |      36.9  | 0.76 |
-| with desc_* features |    6252.50 |   3142.81 |      32.40 | 0.78 |
+| baseline (no desc_*) |    6591.16 |   3349.24 |      36.93 | 0.76 |
+| with desc_* features |    6252.5  |   3142.81 |      32.4  | 0.78 |
 
 ### Gain share of desc_* features (with-desc model)
 
 |                  |     0 |
 |:-----------------|------:|
-| desc_len_log     | 5.793 |
-| desc_equip_count | 1.526 |
-| desc_trim_luxury | 1.083 |
+| desc_len_log     | 5.764 |
+| desc_equip_count | 1.501 |
+| desc_trim_luxury | 1.076 |
 
 ### Error by price segment (with-desc model)
 
 | segment   |      MAE |   MAPE |   count |
 |:----------|---------:|-------:|--------:|
-| 50-150k   | 20626.3  |  28.79 |     929 |
-| 20-50k    |  5241.81 |  16.97 |    9191 |
-| 10-20k    |  2601.72 |  17.5  |   11327 |
-| 5-10k     |  1536.61 |  20.39 |   10378 |
-| <5k       |  1529.31 |  88.77 |    7738 |
+| 50-150k   | 20592.7  |  28.7  |     929 |
+| 20-50k    |  5213.55 |  16.89 |    9191 |
+| 10-20k    |  2603.24 |  17.5  |   11327 |
+| <5k       |  1534.85 |  89.26 |    7738 |
+| 5-10k     |  1534.69 |  20.33 |   10378 |
 
-**Verdict: real improvement.** RMSE drops 5.4% ($6,611 -> $6,253), MAPE improves (36.90% -> 32.40%). desc_* features carry 8.40% of total gain -- a real, if modest, signal. Recommendation: adopt as default features (separate follow-up step, requires re-rippling Phase 3/6 metrics).
+**Verdict: real improvement.** RMSE drops 5.14% ($6,591 -> $6,253), MAPE improves (36.93% -> 32.40%). desc_* features carry 8.34% of total gain -- a real, if modest, signal. Recommendation: adopt as default features (separate follow-up step, requires re-rippling Phase 3/6 metrics).

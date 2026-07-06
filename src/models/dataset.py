@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 RANDOM_STATE: int = 42
 TEST_SIZE: float = 0.20
+VAL_SIZE_OF_REMAINDER: float = 0.25  # 0.25 * 0.80 = 0.20 -> 60/20/20 overall
 
 TARGET_COL: str = "log_price"
 RAW_PRICE_COL: str = "price"
@@ -45,11 +46,31 @@ LOW_CARD_FEATURES: list[str] = [
 
 @dataclass
 class SplitData:
+    """Three-way stratified split for a leakage-safe model-selection workflow.
+
+    - `X_train`, `y_train`, `price_train` (60%): fit models during selection.
+    - `X_val`, `y_val`, `price_val` (20%): hold-out for model comparison and
+       ablation decisions -- never used to fit the final model.
+    - `X_test`, `y_test`, `price_test` (20%): final unbiased hold-out. Only the
+       CHOSEN model, refit on train+val, is evaluated here.
+    - `X_train_full`, `y_train_full`, `price_train_full` (80% = train + val):
+       used to refit the final chosen model, and by downstream scripts that
+       do not perform model selection (predict_intervals, probe_split_leakage,
+       ablations) so their behavior stays identical to the pre-three-way-split
+       setup.
+    """
     X_train: pd.DataFrame
+    X_val: pd.DataFrame
     X_test: pd.DataFrame
     y_train: pd.Series
+    y_val: pd.Series
     y_test: pd.Series
+    price_train: pd.Series
+    price_val: pd.Series
     price_test: pd.Series
+    X_train_full: pd.DataFrame
+    y_train_full: pd.Series
+    price_train_full: pd.Series
 
 
 def select_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
@@ -67,34 +88,56 @@ def select_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, pd.Serie
     return X, y, raw_price
 
 
-def build_split(df: pd.DataFrame, test_size: float = TEST_SIZE) -> SplitData:
-    """Assemble X/y and do stratified random split.
+def build_split(df: pd.DataFrame, test_size: float = TEST_SIZE,
+                val_size_of_remainder: float = VAL_SIZE_OF_REMAINDER) -> SplitData:
+    """Assemble X/y and do a stratified three-way random split.
 
-    Stratification is by price decile so train and test share the same
-    price distribution -- important because price is right-skewed even
-    after log transform.
+    Two nested stratified splits so the test set stays byte-identical to the
+    prior two-way split (same seed, same test_size, same stratification):
+      1. Split all rows into train_full (80%) and test (20%).
+      2. Split train_full into train (60%) and val (20%).
+
+    Stratification is by price decile on each level so all three sets share
+    the same price distribution -- important because price is right-skewed
+    even after log transform.
     """
     X, y, raw_price = select_features(df)
-
     price_decile = pd.qcut(raw_price, q=10, labels=False, duplicates="drop")
 
-    X_train, X_test, y_train, y_test, _, price_test_idx = train_test_split(
-        X, y, raw_price,
+    # Step 1: carve out the final test set. Byte-identical to the old split.
+    (X_train_full, X_test,
+     y_train_full, y_test,
+     price_train_full, price_test,
+     strat_train_full, _) = train_test_split(
+        X, y, raw_price, price_decile,
         test_size=test_size,
         random_state=RANDOM_STATE,
         stratify=price_decile,
     )
 
+    # Step 2: split the remaining 80% into train (60%) and val (20%).
+    (X_train, X_val,
+     y_train, y_val,
+     price_train, price_val) = train_test_split(
+        X_train_full, y_train_full, price_train_full,
+        test_size=val_size_of_remainder,
+        random_state=RANDOM_STATE,
+        stratify=strat_train_full,
+    )
+
     logger.info(
-        "Split: train=%d, test=%d (%.0f%%)",
-        len(X_train), len(X_test), test_size * 100,
+        "Split: train=%d, val=%d, test=%d (%.0f%%/%.0f%%/%.0f%%)",
+        len(X_train), len(X_val), len(X_test),
+        (1 - test_size) * (1 - val_size_of_remainder) * 100,
+        (1 - test_size) * val_size_of_remainder * 100,
+        test_size * 100,
     )
     return SplitData(
-        X_train=X_train,
-        X_test=X_test,
-        y_train=y_train,
-        y_test=y_test,
-        price_test=price_test_idx,
+        X_train=X_train, X_val=X_val, X_test=X_test,
+        y_train=y_train, y_val=y_val, y_test=y_test,
+        price_train=price_train, price_val=price_val, price_test=price_test,
+        X_train_full=X_train_full, y_train_full=y_train_full,
+        price_train_full=price_train_full,
     )
 
 

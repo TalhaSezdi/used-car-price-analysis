@@ -2,7 +2,7 @@
 
 Reuses the exact Phase 3 split (src.models.dataset.build_split, same seed) and the
 exact Phase 3 final model pipeline (target-encoded LightGBM). Does NOT modify the
-pipeline -- this is a read-only diagnostic following the "prove it exists before
+pipeline -- this is a read-only diagnostic per CLAUDE.md's "prove it exists before
 fixing it" rule.
 
 A test row is flagged "contaminated" if a TRAIN row exists with:
@@ -105,7 +105,9 @@ def main() -> None:
     logger.info("Loaded %d rows", len(df))
 
     split = build_split(df)
-    train_idx = split.X_train.index
+    # Use train+val as the training corpus so this probe reflects the same
+    # 80/20 setup the final headline model is trained on.
+    train_idx = split.X_train_full.index
     test_idx = split.X_test.index
 
     # --- Sensitivity sweep: contamination rate at 3 band widths ---
@@ -134,9 +136,9 @@ def main() -> None:
         high_card_cols=HIGH_CARD_FEATURES,
         high_card_method="target",
     )
-    Xt = prep.fit_transform(split.X_train, split.y_train)
+    Xt = prep.fit_transform(split.X_train_full, split.y_train_full)
     Xv = prep.transform(split.X_test)
-    lgbm = train_lgbm(Xt, split.y_train.values, Xv, split.y_test.values, split.price_test.values)
+    lgbm = train_lgbm(Xt, split.y_train_full.values, Xv, split.y_test.values, split.price_test.values)
 
     y_test_log = split.y_test.values
     preds_log = lgbm.predictions

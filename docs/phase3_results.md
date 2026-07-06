@@ -1,23 +1,35 @@
 # Phase 3 Results -- Price Prediction Model
 
-## Model Comparison
+## Split protocol (leakage-safe model selection)
+
+Three-way stratified split (price decile, seed 42): **train 118,688 (60%) / val 39,563 (20%) / test 39,563 (20%)**. All model selection and every ablation below are evaluated on the VAL set. The chosen model (LightGBM) is then refit on train + val (80%) and measured once on TEST -- the number below is that single unbiased estimate.
+
+## Model comparison (validation set)
 
 | Model             |   RMSE ($) |   MAE ($) |   MAPE (%) |   R2 |
 |:------------------|-----------:|----------:|-----------:|-----:|
-| Linear Regression |    8060.17 |   4349.24 |      55.6  | 0.64 |
-| Random Forest     |    6974.05 |   3625.98 |      42.78 | 0.73 |
-| LightGBM          |    6252.5  |   3142.81 |      32.4  | 0.78 |
+| Linear Regression |    8211.89 |   4396.39 |      61.44 | 0.62 |
+| Random Forest     |    6866.96 |   3672.29 |      45.01 | 0.73 |
+| LightGBM          |    6067.02 |   3197.13 |      34.34 | 0.79 |
 
 
-**LightGBM** wins across all four metrics. The jump from Linear to LightGBM: RMSE drops 22% ($8,060 -> $6,253), MAPE drops 23pp (56% -> 32%), R2 rises 0.64 -> 0.78. Linear's 56% MAPE confirms the EDA prediction: the age x odometer interaction requires a non-linear model.
+**LightGBM** wins across all four metrics. The jump from Linear to LightGBM: RMSE drops 26% ($8,212 -> $6,067), MAPE drops 27pp (61% -> 34%), R2 rises 0.62 -> 0.79. Linear's 61% MAPE confirms the EDA prediction: the age x odometer interaction requires a non-linear model.
 
-> Methodology (fixed during self-review): high-card `model` uses **out-of-fold** KFold target encoding (a row is never encoded with its own label); LightGBM early-stops on a validation split carved from TRAIN, **never** on the test set; feature importance below is **gain-based**, not split-count.
+> Methodology: high-card `model` uses **out-of-fold** KFold target encoding (a row is never encoded with its own label); LightGBM early-stops on a sub-validation split carved from TRAIN (not on the val or test set); feature importance below is **gain-based**, not split-count.
 
-> Split integrity (Phase 6A): near-duplicate listings (re-posts) straddling train/test were measured directly -- 4.6% of test rows have a near-duplicate in train, but the effect on these headline metrics is +0.6% RMSE, not material. Full probe methodology: [phase6_results.md](phase6_results.md#6a-split-contamination-probe).
+## Final headline metric (test set)
+
+LightGBM refit on train + val (158,251 rows), evaluated on the untouched test set (39,563 rows):
+
+| Model | RMSE ($) | MAE ($) | MAPE (%) | R2 |
+|---|---|---|---|---|
+| LightGBM | 6252.50 | 3142.81 | 32.40 | 0.78 |
+
+> Split integrity (Phase 6A): near-duplicate listings (re-posts) straddling train/test were measured directly -- 4.6% of test rows have a near-duplicate in train, but the effect on this headline metric is +0.6% RMSE, not material. Full probe methodology: [phase6_results.md](phase6_results.md#6a-split-contamination-probe).
 
 > Features (Phase 7B): includes 3 leakage-free description-derived features (`desc_trim_luxury`, `desc_equip_count`, `desc_len_log`) adopted as default after Ablation A4 showed a real improvement (RMSE -5.3%, MAPE -4.6pp vs the pre-7B feature set). Details: [phase7_results.md](phase7_results.md).
 
-## Feature Importance (LightGBM, % of total gain, top 15)
+## Feature importance (final LightGBM, % of total gain, top 15)
 
 Gain-based (loss reduction), not split-count. Split-count would inflate high-cardinality features (`model`) and continuous ones (`odometer`) regardless of real predictive value.
 
@@ -39,7 +51,7 @@ Gain-based (loss reduction), not split-count. Split-count would inflate high-car
 | state_or | 0.81 |
 | drive_missing | 0.74 |
 
-## Error Analysis
+## Error analysis (final LightGBM on test)
 
 ### By age bucket
 
@@ -83,7 +95,7 @@ Gain-based (loss reduction), not split-count. Split-count would inflate high-car
 
 ---
 
-## Ablation Studies
+## Ablation studies (all evaluated on val)
 
 ### A1: Log target vs raw target (LightGBM)
 
@@ -91,23 +103,23 @@ Gain-based (loss reduction), not split-count. Split-count would inflate high-car
 
 | Model        |   RMSE ($) |   MAE ($) |   MAPE (%) |   R2 |
 |:-------------|-----------:|----------:|-----------:|-----:|
-| log1p(price) |    6252.5  |   3142.81 |      32.4  | 0.78 |
-| raw price    |    5773.58 |   3032.99 |      44.92 | 0.81 |
+| log1p(price) |    6067.02 |   3197.13 |      34.34 | 0.79 |
+| raw price    |    5649.29 |   3110.66 |      49.44 | 0.82 |
 
-**Key finding:** raw target wins on RMSE ($5,774 raw vs $6,252 log) and R2 (0.81 vs 0.78) because dollar-scale optimization favors getting expensive cars right. But MAPE tells the real story: raw target has 45% average percentage error vs 32% for log -- a 13-point gap. Raw-target models systematically under-predict cheap cars (a $500 error on a $2k car is 25% -- invisible to RMSE but devastating to MAPE). For a marketplace where most listings are under $20k, MAPE is the business-relevant metric. We choose log target.
+**Key finding:** raw target wins on RMSE ($5,649 raw vs $6,067 log) and R2 (0.82 vs 0.79) because dollar-scale optimization favors getting expensive cars right. But MAPE tells the real story: raw target has 49% average percentage error vs 34% for log -- a 15-point gap. Raw-target models systematically under-predict cheap cars (a $500 error on a $2k car is 25% -- invisible to RMSE but devastating to MAPE). For a marketplace where most listings are under $20k, MAPE is the business-relevant metric. We choose log target.
 
 ### A2: Collinearity -- age only vs age + year
 
 **Question:** why drop `year` when we have `age`?
 
-- With `age` only: age coefficient = -0.022610
-- With both: age coefficient = 0.219845, year coefficient = 0.242297
+- With `age` only: age coefficient = -0.022574
+- With both: age coefficient = 0.262508, year coefficient = 0.284880
 - Because corr(age, year) = -1.00 by construction (age = posting_year - year), the two carry identical information. Adding both makes the linear coefficients unstable (they can trade magnitude freely without changing predictions). Tree models are unaffected but it wastes a split dimension.
 
 | Variant | RMSE ($) | MAE ($) | MAPE (%) | R2 |
 |---------|----------|---------|----------|-----|
-| age only | 8060.17 | 4349.24 | 55.60 | 0.6386 |
-| age + year | 8036.90 | 4342.44 | 55.67 | 0.6407 |
+| age only | 8211.89 | 4396.39 | 61.44 | 0.6193 |
+| age + year | 8359.29 | 4397.22 | 61.98 | 0.6055 |
 
 **Conclusion:** dropping `year` is correct -- no information is lost and coefficient interpretation is clean.
 
@@ -117,8 +129,8 @@ Gain-based (loss reduction), not split-count. Split-count would inflate high-car
 
 | Model              |   RMSE ($) |   MAE ($) |   MAPE (%) |   R2 |
 |:-------------------|-----------:|----------:|-----------:|-----:|
-| target_encoding    |    6252.5  |   3142.81 |      32.4  | 0.78 |
-| frequency_encoding |    6176.81 |   3094.16 |      32.12 | 0.79 |
-| drop_model_column  |    6449.16 |   3319.23 |      33.69 | 0.77 |
+| target_encoding    |    6067.02 |   3197.13 |      34.34 | 0.79 |
+| frequency_encoding |    5991.47 |   3164.03 |      33.78 | 0.8  |
+| drop_model_column  |    6324    |   3400.74 |      35.86 | 0.77 |
 
-**Key finding:** with out-of-fold target encoding, **frequency_encoding** wins on RMSE ($6,252 target vs $6,177 frequency vs $6,449 drop), with R2=0.78. Frequency encoding edges target on MAPE (32.1% frequency vs 32.4% target) because it captures the 'popular models are cheaper' signal cheaply. Dropping `model` costs ~$197 RMSE and ~1.3 MAPE points -- model identity carries real trim-level signal (a Civic vs an Accord at equal age/mileage is a $3-5k gap). **Lesson (from an earlier self-review):** an ablation is only trustworthy if the pipeline under it is leakage-free -- a buggy version that silently applied a leaky full-train mapping to training rows made target encoding look worse than frequency/drop; fixing it to genuine OOF encoding reversed the ranking.
+**Key finding:** with out-of-fold target encoding, **frequency_encoding** wins on RMSE ($6,067 target vs $5,991 frequency vs $6,324 drop), with R2=0.79. Frequency encoding edges target on MAPE (33.8% frequency vs 34.3% target) because it captures the 'popular models are cheaper' signal cheaply. Dropping `model` costs ~$257 RMSE and ~1.5 MAPE points -- model identity carries real trim-level signal (a Civic vs an Accord at equal age/mileage is a $3-5k gap). **Lesson (from an earlier self-review):** an ablation is only trustworthy if the pipeline under it is leakage-free -- a buggy version that silently applied a leaky full-train mapping to training rows made target encoding look worse than frequency/drop; fixing it to genuine OOF encoding reversed the ranking.

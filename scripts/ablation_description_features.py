@@ -67,15 +67,20 @@ def main() -> None:
 
     split = build_split(df)  # reuses Phase 3/6A split (X/y are rebuilt below with more cols)
 
-    baseline_numeric = NUMERIC_FEATURES
-    extended_numeric = NUMERIC_FEATURES + DESC_FEATURES
+    # NUMERIC_FEATURES now contains DESC_FEATURES by default (Phase 7B adoption).
+    # For this ablation the "baseline" must strip them out; "extended" is just
+    # the current default set (no double-add).
+    baseline_numeric = [c for c in NUMERIC_FEATURES if c not in DESC_FEATURES]
+    extended_numeric = list(NUMERIC_FEATURES)
 
-    X_train_base = _build_matrix(df, split.X_train.index, baseline_numeric)
+    # Use train+val (80%) as the training corpus so this ablation reflects
+    # the same 80/20 setup the final headline model is trained on.
+    X_train_base = _build_matrix(df, split.X_train_full.index, baseline_numeric)
     X_test_base = _build_matrix(df, split.X_test.index, baseline_numeric)
-    X_train_ext = _build_matrix(df, split.X_train.index, extended_numeric)
+    X_train_ext = _build_matrix(df, split.X_train_full.index, extended_numeric)
     X_test_ext = _build_matrix(df, split.X_test.index, extended_numeric)
 
-    y_train, y_test = split.y_train, split.y_test
+    y_train, y_test = split.y_train_full, split.y_test
     price_test = split.price_test.values
 
     results = {}

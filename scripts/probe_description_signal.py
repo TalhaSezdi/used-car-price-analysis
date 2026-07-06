@@ -155,9 +155,9 @@ def main() -> None:
         numeric_cols=NUMERIC_FEATURES, low_card_cols=LOW_CARD_FEATURES,
         high_card_cols=HIGH_CARD_FEATURES, high_card_method="target",
     )
-    Xt_train = prep.fit_transform(split.X_train, split.y_train)
+    Xt_train = prep.fit_transform(split.X_train_full, split.y_train_full)
     Xt_test = prep.transform(split.X_test)
-    med_model = fit_median_model(Xt_train, split.y_train)
+    med_model = fit_median_model(Xt_train, split.y_train_full)
     pred_dollar = np.expm1(med_model.predict(Xt_test))
     price_test = split.price_test.values
 

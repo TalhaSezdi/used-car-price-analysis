@@ -35,7 +35,7 @@ We standardize with median + MAD, not mean + std. The outliers we are hunting in
 
 ### 4. Isolation Forest -- and why we EXCLUDE `log_price` from its features
 
-- Fit on 197,814 rows in **12.4s**. IF is ~O(n log n) via random subsampling; LOF is ~O(n^2) on pairwise distances (~39e9 ops) and One-Class SVM does not scale to ~200k. IF is the only practical full-data choice.
+- Fit on 197,814 rows in **14.2s**. IF is ~O(n log n) via random subsampling; LOF is ~O(n^2) on pairwise distances (~39e9 ops) and One-Class SVM does not scale to ~200k. IF is the only practical full-data choice.
 - **Design decision (fixed during self-review):** `log_price` was originally in the IF feature set. That made IF partly re-detect the same price-outlier signal the residual method already catches -- inflating the 'flagged by BOTH' overlap mechanically. Independence check: with `log_price` in IF, corr(if_score, |z|) = 0.336; without it, 0.118. Also without price, the residual & IF overlap drops from 639 to a genuinely independent ~220 set. IF now uses only structural features (age, odometer, mileage_per_year, cylinders_num), so the two signals are orthogonal by construction and the 'HIGH' tier truly means 'suspicious on price AND structurally weird'.
 
 ### 5. Confound warning: residual = listing anomaly + model error
