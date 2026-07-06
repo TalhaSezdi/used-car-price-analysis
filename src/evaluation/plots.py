@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+from src.config import AGE_BUCKET_BINS, AGE_BUCKET_LABELS, ANOMALY_Z_THRESHOLD, INTERVAL_ALPHA, RANDOM_STATE
+
 sns.set_theme(style="whitegrid", palette="deep")
 plt.rcParams["figure.dpi"] = 110
 plt.rcParams["savefig.bbox"] = "tight"
@@ -22,6 +24,12 @@ TOP_N_MANUFACTURERS = 6
 
 
 def _save(fig: plt.Figure, save_path: Path | str | None) -> None:
+    """Save a figure to disk, creating parent directories as needed.
+
+    Args:
+        fig: Figure to save.
+        save_path: Destination path. If None, this is a no-op.
+    """
     if save_path is not None:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -29,7 +37,15 @@ def _save(fig: plt.Figure, save_path: Path | str | None) -> None:
 
 
 def plot_price_distribution(df: pd.DataFrame, save_path: Path | str | None = None) -> plt.Figure:
-    """Raw price vs log1p(price) to justify the log target transform."""
+    """Plot raw price vs log1p(price) to justify the log target transform.
+
+    Args:
+        df: Cleaned dataset with `price` and `log_price` columns.
+        save_path: Optional path to save the figure to.
+
+    Returns:
+        plt.Figure: The two-panel histogram figure.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
     sns.histplot(df["price"], bins=60, ax=axes[0], color="#c0392b")
     axes[0].set_title(f"Raw price (skew = {df['price'].skew():.2f})")
@@ -45,10 +61,24 @@ def plot_price_distribution(df: pd.DataFrame, save_path: Path | str | None = Non
     return fig
 
 
-def plot_depreciation(df: pd.DataFrame, save_path: Path | str | None = None,
-                      max_age: int = 30) -> plt.Figure:
-    """Median price vs vehicle age for the top-N manufacturers."""
-    top = df["manufacturer"].value_counts().head(TOP_N_MANUFACTURERS).index
+def plot_depreciation(
+    df: pd.DataFrame,
+    save_path: Path | str | None = None,
+    max_age: int = 30,
+    top_n_manufacturers: int = TOP_N_MANUFACTURERS,
+) -> plt.Figure:
+    """Plot median price vs vehicle age for the top-N manufacturers.
+
+    Args:
+        df: Cleaned dataset with `manufacturer`, `age`, `price` columns.
+        save_path: Optional path to save the figure to.
+        max_age: Maximum vehicle age (years) to include.
+        top_n_manufacturers: Number of manufacturers (by listing count) to plot.
+
+    Returns:
+        plt.Figure: The depreciation-curve figure.
+    """
+    top = df["manufacturer"].value_counts().head(top_n_manufacturers).index
     sub = df[(df["manufacturer"].isin(top)) & (df["age"] <= max_age)]
     curve = (
         sub.groupby(["manufacturer", "age"])["price"]
@@ -66,7 +96,7 @@ def plot_depreciation(df: pd.DataFrame, save_path: Path | str | None = None,
             .reindex(full_age_range)
         )
         ax.plot(d.index, d["price"], marker="o", markersize=3, label=man)
-    ax.set_title("Depreciation curves: median price vs age (top 6 manufacturers)")
+    ax.set_title(f"Depreciation curves: median price vs age (top {top_n_manufacturers} manufacturers)")
     ax.set_xlabel("Vehicle age (years)")
     ax.set_ylabel("Median price ($)")
     ax.legend(title="manufacturer")
@@ -75,10 +105,25 @@ def plot_depreciation(df: pd.DataFrame, save_path: Path | str | None = None,
     return fig
 
 
-def plot_odometer_vs_price(df: pd.DataFrame, save_path: Path | str | None = None) -> plt.Figure:
-    """Density of odometer vs price with a binned median trend line."""
+def plot_odometer_vs_price(
+    df: pd.DataFrame,
+    save_path: Path | str | None = None,
+    sample_size: int = 40_000,
+    random_state: int = RANDOM_STATE,
+) -> plt.Figure:
+    """Plot density of odometer vs price with a binned median trend line.
+
+    Args:
+        df: Cleaned dataset with `odometer` and `price` columns.
+        save_path: Optional path to save the figure to.
+        sample_size: Max number of rows to scatter-plot (for render speed).
+        random_state: Seed for the row sample.
+
+    Returns:
+        plt.Figure: The odometer-vs-price scatter + trend figure.
+    """
     fig, ax = plt.subplots(figsize=(11, 5.5))
-    sample = df.sample(min(40000, len(df)), random_state=42)
+    sample = df.sample(min(sample_size, len(df)), random_state=random_state)
     ax.scatter(sample["odometer"], sample["price"], s=4, alpha=0.15, color="#2c3e50")
 
     bins = np.linspace(0, df["odometer"].quantile(0.99), 40)
@@ -98,7 +143,15 @@ def plot_odometer_vs_price(df: pd.DataFrame, save_path: Path | str | None = None
 
 
 def plot_price_by_category(df: pd.DataFrame, save_path: Path | str | None = None) -> plt.Figure:
-    """Boxplots of price by vehicle type and by condition."""
+    """Plot boxplots of price by vehicle type and by condition.
+
+    Args:
+        df: Cleaned dataset with `type`, `condition`, `price` columns.
+        save_path: Optional path to save the figure to.
+
+    Returns:
+        plt.Figure: The two-panel boxplot figure.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
 
     type_order = (
@@ -121,7 +174,16 @@ def plot_price_by_category(df: pd.DataFrame, save_path: Path | str | None = None
 
 def plot_manufacturer_median_price(df: pd.DataFrame, save_path: Path | str | None = None,
                                    min_count: int = 500) -> plt.Figure:
-    """Median price by manufacturer (only brands with enough listings)."""
+    """Plot median price by manufacturer (only brands with enough listings).
+
+    Args:
+        df: Cleaned dataset with `manufacturer` and `price` columns.
+        save_path: Optional path to save the figure to.
+        min_count: Minimum listing count for a manufacturer to be included.
+
+    Returns:
+        plt.Figure: The horizontal bar chart figure.
+    """
     counts = df["manufacturer"].value_counts()
     keep = counts[counts >= min_count].index
     med = (
@@ -142,7 +204,16 @@ def plot_manufacturer_median_price(df: pd.DataFrame, save_path: Path | str | Non
 
 def plot_state_median_price(df: pd.DataFrame, save_path: Path | str | None = None,
                             top_bottom: int = 12) -> plt.Figure:
-    """Top and bottom states by median price to show regional arbitrage."""
+    """Plot top and bottom states by median price to show regional arbitrage.
+
+    Args:
+        df: Cleaned dataset with `state` and `price` columns.
+        save_path: Optional path to save the figure to.
+        top_bottom: Number of states to show at each end of the ranking.
+
+    Returns:
+        plt.Figure: The horizontal bar chart figure.
+    """
     med = df.groupby("state")["price"].median().sort_values(ascending=False)
     sel = pd.concat([med.head(top_bottom), med.tail(top_bottom)])
     colors = ["#27ae60"] * top_bottom + ["#c0392b"] * top_bottom
@@ -159,13 +230,30 @@ def plot_state_median_price(df: pd.DataFrame, save_path: Path | str | None = Non
     return fig
 
 
-def plot_value_heaping(df: pd.DataFrame, save_path: Path | str | None = None) -> plt.Figure:
-    """Psychological price endings and odometer rounding (behavioral + data quality)."""
+def plot_value_heaping(
+    df: pd.DataFrame,
+    save_path: Path | str | None = None,
+    highlight_endings: tuple[int, ...] = (995, 999, 0, 500),
+) -> plt.Figure:
+    """Plot psychological price endings and odometer rounding.
+
+    Behavioral pricing pattern (e.g. $X,995) plus a data-quality signal
+    (rounded odometer readings).
+
+    Args:
+        df: Cleaned dataset with `price` and `odometer` columns.
+        save_path: Optional path to save the figure to.
+        highlight_endings: Price-mod-1000 values to highlight as "interesting"
+            (psychologically anchored endings) in the left panel.
+
+    Returns:
+        plt.Figure: The two-panel figure.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
 
     price_end = (df["price"].astype(int) % 1000)
     top_end = price_end.value_counts().head(12).sort_values(ascending=False)
-    colors = ["#c0392b" if e in (995, 999, 0, 500) else "#95a5a6" for e in top_end.index]
+    colors = ["#c0392b" if e in highlight_endings else "#95a5a6" for e in top_end.index]
     axes[0].bar([str(e) for e in top_end.index], top_end.values, color=colors)
     axes[0].set_title("Most common price endings (last 3 digits)")
     axes[0].set_xlabel("price mod 1000")
@@ -189,13 +277,27 @@ def plot_value_heaping(df: pd.DataFrame, save_path: Path | str | None = None) ->
     return fig
 
 
-def plot_confound_check(df: pd.DataFrame, save_path: Path | str | None = None) -> plt.Figure:
-    """Show that raw 'premiums' for VIN and missing-condition largely reflect age."""
+def plot_confound_check(
+    df: pd.DataFrame,
+    save_path: Path | str | None = None,
+    age_bins: list[float] = AGE_BUCKET_BINS,
+    age_labels: list[str] = AGE_BUCKET_LABELS,
+) -> plt.Figure:
+    """Show that raw 'premiums' for VIN and missing-condition largely reflect age.
+
+    Args:
+        df: Cleaned dataset with `VIN`, `condition`, `age`, `price` columns.
+        save_path: Optional path to save the figure to.
+        age_bins: Bin edges for the age bucketing.
+        age_labels: Labels matching `age_bins` (one fewer than the number of edges).
+
+    Returns:
+        plt.Figure: The two-panel grouped bar chart figure.
+    """
     d = df.copy()
     d["has_vin"] = d["VIN"].notna() & (d["VIN"].str.strip() != "")
     d["cond_missing"] = d["condition"].isna()
-    d["age_bucket"] = pd.cut(d["age"], [0, 3, 6, 10, 15, 60],
-                             labels=["0-3", "4-6", "7-10", "11-15", "16+"])
+    d["age_bucket"] = pd.cut(d["age"], age_bins, labels=age_labels)
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
@@ -223,13 +325,26 @@ def plot_confound_check(df: pd.DataFrame, save_path: Path | str | None = None) -
     return fig
 
 
-def plot_age_odometer_interaction(df: pd.DataFrame, save_path: Path | str | None = None) -> plt.Figure:
-    """2D median-price grid over age x odometer to expose their interaction."""
+def plot_age_odometer_interaction(
+    df: pd.DataFrame,
+    save_path: Path | str | None = None,
+    age_bins: list[float] = (0, 2, 4, 6, 8, 10, 13, 16, 20, 60),
+    odo_bins: list[float] = (0, 20_000, 40_000, 60_000, 80_000, 100_000, 130_000, 160_000, 200_000, 500_000),
+) -> plt.Figure:
+    """Plot a 2D median-price grid over age x odometer to expose their interaction.
+
+    Args:
+        df: Cleaned dataset with `age`, `odometer`, `price` columns.
+        save_path: Optional path to save the figure to.
+        age_bins: Bin edges for the age axis.
+        odo_bins: Bin edges for the odometer axis.
+
+    Returns:
+        plt.Figure: The heatmap figure.
+    """
     d = df.copy()
-    age_bins = [0, 2, 4, 6, 8, 10, 13, 16, 20, 60]
-    odo_bins = [0, 20_000, 40_000, 60_000, 80_000, 100_000, 130_000, 160_000, 200_000, 500_000]
-    d["age_b"] = pd.cut(d["age"], age_bins)
-    d["odo_b"] = pd.cut(d["odometer"], odo_bins)
+    d["age_b"] = pd.cut(d["age"], list(age_bins))
+    d["odo_b"] = pd.cut(d["odometer"], list(odo_bins))
     grid = d.pivot_table("price", "odo_b", "age_b", "median", observed=False)
 
     fig, ax = plt.subplots(figsize=(11, 7))
@@ -244,21 +359,37 @@ def plot_age_odometer_interaction(df: pd.DataFrame, save_path: Path | str | None
     return fig
 
 
-def plot_missingness_and_cardinality(df: pd.DataFrame, save_path: Path | str | None = None) -> plt.Figure:
-    """Left: structured missingness (co-occurrence). Right: model long-tail cardinality."""
+def plot_missingness_and_cardinality(
+    df: pd.DataFrame,
+    save_path: Path | str | None = None,
+    miss_cols: list[str] = ("condition", "drive", "type", "paint_color", "cylinders", "size"),
+    cardinality_bins: list[float] = (0, 1, 4, 19, 99, np.inf),
+    cardinality_labels: list[str] = ("1", "2-4", "5-19", "20-99", "100+"),
+) -> plt.Figure:
+    """Plot structured missingness co-occurrence and model long-tail cardinality.
+
+    Args:
+        df: Cleaned dataset.
+        save_path: Optional path to save the figure to.
+        miss_cols: Columns to include in the missingness co-occurrence panel.
+        cardinality_bins: Bin edges for "listings per model" bucketing.
+        cardinality_labels: Labels matching `cardinality_bins`.
+
+    Returns:
+        plt.Figure: The two-panel figure.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.8))
 
-    miss_cols = ["condition", "drive", "type", "paint_color", "cylinders", "size"]
-    miss_cols = [c for c in miss_cols if c in df.columns]
-    miss_corr = df[miss_cols].isna().corr()
+    cols = [c for c in miss_cols if c in df.columns]
+    miss_corr = df[cols].isna().corr()
     sns.heatmap(miss_corr, annot=True, fmt=".2f", cmap="Oranges", vmin=0, vmax=1,
                 ax=axes[0], square=True, cbar_kws={"shrink": 0.7})
     axes[0].set_title("Missingness co-occurrence (phi)\nfields go missing together")
 
     vc = df["model"].value_counts()
-    buckets = pd.cut(vc, [0, 1, 4, 19, 99, np.inf],
-                     labels=["1", "2-4", "5-19", "20-99", "100+"])
-    n_models = buckets.value_counts().reindex(["1", "2-4", "5-19", "20-99", "100+"])
+    cardinality_labels = list(cardinality_labels)
+    buckets = pd.cut(vc, list(cardinality_bins), labels=cardinality_labels)
+    n_models = buckets.value_counts().reindex(cardinality_labels)
     rows_covered = vc.groupby(buckets, observed=False).sum().reindex(n_models.index)
 
     x = np.arange(len(n_models))
@@ -284,11 +415,30 @@ def plot_anomaly_overview(
     price: np.ndarray,
     predicted: np.ndarray,
     residual_flag: np.ndarray,
-    z_threshold: float = 3.5,
+    z_threshold: float = ANOMALY_Z_THRESHOLD,
     save_path: Path | str | None = None,
+    sample_size: int = 30_000,
+    random_state: int = RANDOM_STATE,
 ) -> plt.Figure:
-    """Left: robust-z residual distribution with flagged tails.
-    Right: predicted vs actual price, flagged listings highlighted."""
+    """Plot the robust-z residual distribution and predicted-vs-actual scatter.
+
+    Left panel: robust-z residual distribution with flagged tails. Right
+    panel: predicted vs actual price, flagged listings highlighted.
+
+    Args:
+        residual_z: Robust z-score per row.
+        price: Actual listed price per row.
+        predicted: Model-predicted price per row.
+        residual_flag: Boolean flag array, True where a row is anomalous.
+        z_threshold: Reference line drawn at +/- this z value. Should match
+            the threshold actually used to compute `residual_flag`.
+        save_path: Optional path to save the figure to.
+        sample_size: Max number of rows to scatter-plot in the right panel.
+        random_state: Seed for the row sample in the right panel.
+
+    Returns:
+        plt.Figure: The two-panel figure.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
 
     clipped = np.clip(residual_z, -10, 10)
@@ -302,7 +452,7 @@ def plot_anomaly_overview(
     axes[0].legend()
 
     n = len(price)
-    idx = np.random.RandomState(42).choice(n, size=min(30000, n), replace=False)
+    idx = np.random.RandomState(random_state).choice(n, size=min(sample_size, n), replace=False)
     normal = idx[~residual_flag[idx]]
     flagged = idx[residual_flag[idx]]
     axes[1].scatter(predicted[normal], price[normal], s=4, alpha=0.12, color="#2c3e50",
@@ -330,13 +480,29 @@ def plot_interval_width(
     coverage_by_segment: pd.Series | None = None,
     coverage_comparison: pd.Series | None = None,
     comparison_labels: tuple[str, str] = ("standard CQR", "Mondrian"),
-    nominal: float = 0.90,
+    nominal: float = 1 - INTERVAL_ALPHA,
     save_path: Path | str | None = None,
 ) -> plt.Figure:
-    """Left: conformal interval width vs price (binned median) -- shows
+    """Plot conformal interval width vs price and empirical coverage by segment.
+
+    Left panel: conformal interval width vs price (binned median) -- shows
     heteroscedasticity honestly instead of hiding it behind a global z-score.
-    Right: empirical coverage per segment vs the nominal target; if
-    coverage_comparison is given, grouped bars compare the two variants."""
+    Right panel: empirical coverage per segment vs the nominal target; if
+    `coverage_comparison` is given, grouped bars compare the two variants.
+
+    Args:
+        price: Actual listed price per row.
+        width: Interval width (hi - lo) per row.
+        coverage_by_segment: Optional per-segment empirical coverage.
+        coverage_comparison: Optional second per-segment coverage series to
+            compare against `coverage_by_segment`.
+        comparison_labels: Legend labels for the two coverage series.
+        nominal: Nominal target coverage (e.g. 0.90 for a 90% interval).
+        save_path: Optional path to save the figure to.
+
+    Returns:
+        plt.Figure: The two-panel figure.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
     cap = np.percentile(price, 99)
@@ -381,11 +547,25 @@ def plot_interval_width(
     return fig
 
 
-def plot_correlation_heatmap(df: pd.DataFrame, save_path: Path | str | None = None) -> plt.Figure:
-    """Correlation of numeric features with price."""
-    cols = ["price", "log_price", "age", "year", "odometer", "log_odometer",
-            "mileage_per_year", "cylinders_num"]
-    cols = [c for c in cols if c in df.columns]
+def plot_correlation_heatmap(
+    df: pd.DataFrame,
+    save_path: Path | str | None = None,
+    numeric_cols: list[str] = (
+        "price", "log_price", "age", "year", "odometer", "log_odometer",
+        "mileage_per_year", "cylinders_num",
+    ),
+) -> plt.Figure:
+    """Plot correlation of numeric features with price.
+
+    Args:
+        df: Cleaned dataset.
+        save_path: Optional path to save the figure to.
+        numeric_cols: Numeric columns to include in the correlation matrix.
+
+    Returns:
+        plt.Figure: The correlation heatmap figure.
+    """
+    cols = [c for c in numeric_cols if c in df.columns]
     corr = df[cols].corr()
     fig, ax = plt.subplots(figsize=(8.5, 7))
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="RdBu_r", center=0, ax=ax,
