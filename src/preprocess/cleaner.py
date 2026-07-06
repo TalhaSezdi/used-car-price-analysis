@@ -89,6 +89,7 @@ class DataCleaner:
 
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
         self.report = CleaningReport(initial_rows=len(df))
+        df = df.copy()
         df = self._drop_cols(df)
         df = self._cast_types(df)
         df = self._filter_price(df)
@@ -113,7 +114,7 @@ class DataCleaner:
         df["odometer"] = pd.to_numeric(df["odometer"], errors="coerce")
         df["year"] = pd.to_numeric(df["year"], errors="coerce")
         if "posting_date" in df.columns:
-            df["posting_date"] = pd.to_datetime(df["posting_date"], errors="coerce", utc=True)
+            df["posting_date"] = pd.to_datetime(df["posting_date"], format="ISO8601", errors="coerce", utc=True)
         for col in ["manufacturer", "model", "condition", "cylinders", "fuel",
                     "title_status", "transmission", "drive", "size", "type",
                     "paint_color", "state", "region"]:
