@@ -46,7 +46,7 @@ class FeatureEngineer:
     def _add_age(self, df: pd.DataFrame) -> pd.DataFrame:
         """Vehicle age relative to posting year, NOT the current real-world date."""
         if "posting_date" in df.columns and df["posting_date"].notna().any():
-            posting_year = df["posting_date"].dt.year
+            posting_year = df["posting_date"].dt.year.fillna(REFERENCE_YEAR)
         else:
             posting_year = REFERENCE_YEAR
 
