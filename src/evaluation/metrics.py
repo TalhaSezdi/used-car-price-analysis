@@ -58,7 +58,11 @@ def error_by_segment(
         y_true_dollar = np.asarray(price_actual)
 
     err = np.abs(y_true_dollar - y_pred_dollar)
-    pct_err = err / np.maximum(y_true_dollar, 1) * 100
+    pct_err = np.where(
+        y_true_dollar > 0,
+        err / np.where(y_true_dollar > 0, y_true_dollar, 1) * 100,
+        np.nan,
+    )
 
     df = pd.DataFrame({
         "abs_error": err,
