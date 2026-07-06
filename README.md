@@ -84,6 +84,12 @@ Hedef dönüşümü, kodlama stratejisi ve öznitelik kümesi gibi kararlar bire
 - Tekilleştirme sonrası kalan yakın-kopyaların train/test sınırını geçme etkisi
   ölçüldü: test satırlarının %4.6'sında yakın kopya var, genel RMSE'ye etkisi +%0.6
   (kabul eşiğinin altında). Ölçüm: [docs/phase6_results.md](docs/phase6_results.md).
+- Temizleme 426,880 satırdan 197,814'e (%46.3) düşürüyor. Marka ve eyalet
+  kompozisyon kayması küçük (isimli üreticilerde en fazla 1.40 pp, eyaletlerde
+  1.00 pp), fiyat/yıl kesim sınırları bilinçli scoping kararı. Dedup 2015-19
+  yıl bandı ve 20-50k fiyat bandını orantısız inceltir; segment bazlı hata
+  analizinde bu bantlar zaten ayrı raporlanır. Ayrıntı:
+  [docs/attrition_analysis.md](docs/attrition_analysis.md).
 - Tahmin aralıkları öznitelik-koşullu kapsama garantisi verir; gerçek fiyata göre uç
   segmentlerde (50-150 bin) kapsama düşer. Bu bir kalibrasyon sınırı değil, nadir
   pahalı araçlarda nokta tahminin kendi sınırıdır.
@@ -122,6 +128,7 @@ reports/       figurler ve supheli ilan raporu
 
 Dokümanlar: [veri denetimi](docs/phase1_audit.md) ·
 [temizleme ve öznitelikler](docs/cleaning_pipeline.md) ·
+[atrisyon analizi](docs/attrition_analysis.md) ·
 [EDA](docs/phase2_insights.md) · [modelleme ve ablation](docs/phase3_results.md) ·
 [anomali tespiti](docs/phase4_results.md) ·
 [split bütünlüğü ve tahmin aralıkları](docs/phase6_results.md) ·
