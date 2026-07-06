@@ -18,14 +18,6 @@ VAL_SIZE_OF_REMAINDER: float = 0.25  # 0.25 * 0.80 = 0.20 -> 60/20/20 overall
 TARGET_COL: str = "log_price"
 RAW_PRICE_COL: str = "price"
 
-DROP_BEFORE_MODEL: list[str] = [
-    "price", "log_price",
-    "VIN", "region", "lat", "long",
-    "year",
-    "posting_date",
-    "size",
-]
-
 NUMERIC_FEATURES: list[str] = [
     "age", "odometer", "log_odometer", "mileage_per_year", "cylinders_num",
     # Phase 7B: leakage-free description-derived features (Ablation A4 showed

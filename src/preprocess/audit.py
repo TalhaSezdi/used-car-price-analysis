@@ -10,8 +10,6 @@ from pathlib import Path
 RAW_PATH = Path(__file__).parents[2] / "data" / "raw" / "vehicles.csv"
 AUDIT_OUT = Path(__file__).parents[2] / "docs" / "phase1_audit.md"
 
-DROP_COLS = ["id", "url", "region_url", "image_url", "description", "county"]
-
 
 def load_raw(path: Path = RAW_PATH) -> pd.DataFrame:
     return pd.read_csv(path, low_memory=False)
