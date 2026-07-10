@@ -1,151 +1,135 @@
-# İkinci El Araç Fiyat Tahmini ve Anomali Tespiti
+# İkinci El Araç Fiyatlama ve Anomali Tespiti
 
-Craigslist ilanlarından oluşan ~427 bin satırlık veri seti üzerinde uçtan uca bir
-veri bilimi projesi: veri temizleme, keşifçi veri analizi, fiyat tahmini
-(regresyon) ve şüpheli ilan tespiti.
+426.880 Craigslist ilanını temizleme, keşifçi veri analizi, fiyat tahmini,
+tahmin aralığı üretimi ve şüpheli ilan tespitinden geçiren uçtan uca bir veri
+bilimi projesi. Modüler iş mantığı `src/` altında, çalıştırılabilir iş akışları
+`scripts/` altında tutulur; notebook yalnızca sunum katmanıdır.
 
-## Genel bakış
+## Akış
 
-Bir aracın özniteliklerinden (yaş, kilometre, marka/model, durum, çekiş, ...) ilan
-fiyatını tahmin eden bir regresyon modeli ve bu modelin artıklarına dayanan bir
-anomali tespit katmanı. Veri temizlemeden model değerlendirmesine kadar tüm mantık
-`src/` altında modüler paketler halinde; her aşama `scripts/` altındaki bir giriş
-noktasıyla çalıştırılır. Not defterleri yalnızca sunum içindir.
+```text
+data/raw/vehicles.csv (426,880 ilan)
+  -> DataCleaner + FeatureEngineer
+  -> data/processed/cleaned.parquet (197,814 ilan)
+       |-> EDA -> 13 figure + business insights
+       |-> 60/20/20 stratified split
+       |     -> preprocessing -> Linear / Random Forest / LightGBM
+       |     -> final LightGBM -> point estimate + conformal interval
+       `-> 5-fold OOF predictions -> MAD-z + Isolation Forest
+                                      -> suspicious_listings.csv
+```
 
-## Sonuçlar
+## Teknik yaklaşım
 
-Üç yollu tabakalı bölme (fiyat desili, seed 42): **train %60 (118,688) /
-validation %20 (39,563) / test %20 (39,563)**. Tüm model seçimi ve ablation
-kararları val setinde verilir; test seti yalnızca son adımda, seçilen modelin
-tarafsız hata tahmini için kullanılır. Metrikler dolar ölçeğinde (log
-dönüşümü `expm1` ile geri alınmıştır).
+| Aşama | Uygulama |
+|---|---|
+| Temizleme | Fiyat `[500, 150000]`, yıl `[1970, 2022]` ve kilometre `[1, 500000]` filtreleri; VIN ve yalnızca VIN'siz kayıtlarda parmak izi ile tekilleştirme. Ham veri değiştirilmez. |
+| Özellik üretimi | `age = posting_year - year`, yıllık kilometre, log dönüşümleri, alfabetik trim/donanım eşleşmeleri ve metin uzunluğu. Açıklamadan sayısal değer çıkarılmaz; ham metin modele girmez. |
+| Ön işleme | Sayısal alanlarda medyan + eksiklik göstergesi; düşük kardinalitede one-hot; `model` alanında smoothing içeren 5-fold OOF target encoding. Fit edilen tüm dönüşümler yalnızca eğitim verisini kullanır. |
+| Doğrulama | Fiyat desiline göre sabit tohumlu (`random_state=42`) %60 train / %20 validation / %20 test. Model karşılaştırması ile A1-A3 validation'da yürütülür; A4 için aşağıdaki sınırlamaya bakın. |
+| Modelleme | `log1p(price)` hedefi üzerinde Linear Regression, Random Forest ve LightGBM. Metrikler `expm1` sonrası dolar ölçeğinde hesaplanır. |
+| Belirsizlik | LightGBM quantile modelleri ve ayrı calibration kümesiyle conformalized quantile regression; Mondrian varyantında tahmin bandı orta noktasına göre grup-koşullu kalibrasyon. |
+| Anomali | Her ilan için 5-fold OOF log-artıklarından robust MAD-z skoru; fiyattan bağımsız yapısal sinyal için Isolation Forest. Etiket bulunmadığından sahte bir doğruluk metriği raporlanmaz. |
 
-### Model karşılaştırması (validation seti)
+Ayrıntılı temizleme kuralları ve satır kaybı analizi:
+[cleaning_pipeline.md](docs/cleaning_pipeline.md) ve
+[attrition_analysis.md](docs/attrition_analysis.md).
 
-| Model | RMSE ($) | MAE ($) | MAPE (%) | R2 |
-|---|---|---|---|---|
-| Linear Regression | 8,212 | 4,396 | 61.4 | 0.62 |
-| Random Forest | 6,867 | 3,672 | 45.0 | 0.73 |
-| LightGBM | 6,067 | 3,197 | 34.3 | 0.79 |
+## Model sonuçları
 
-LightGBM her metrikte açık ara kazanıyor -- final model olarak seçildi.
+Model seçimi validation kümesinde yapılmıştır:
 
-### Final skor (test seti)
+| Model | RMSE ($) | MAE ($) | MAPE | R² |
+|---|---:|---:|---:|---:|
+| Linear Regression | 8.212 | 4.396 | %61,4 | 0,62 |
+| Random Forest | 6.867 | 3.672 | %45,0 | 0,73 |
+| **LightGBM** | **6.067** | **3.197** | **%34,3** | **0,79** |
 
-Seçilen LightGBM, train + val (158,251 satır) üzerinde yeniden eğitildi ve dokunulmamış
-test setinde (39,563 satır) tek bir defa ölçüldü:
+Train + validation havuzuyla kurulan LightGBM (bu havuzdan ayrılan iç
+early-stopping holdout'u ile), 39.563 satırlık test kümesinde **6.253 $ RMSE**,
+**3.143 $ MAE**, **%32,4 MAPE** ve **0,78 R²** üretmiştir. En yüksek gain
+payları `age` (%39), `model` (%16) ve `odometer` (%10) özelliklerindedir. Tüm
+ablation ve segment analizleri [phase3_results.md](docs/phase3_results.md)
+içindedir.
 
-| Model | RMSE ($) | MAE ($) | MAPE (%) | R2 |
-|---|---|---|---|---|
-| LightGBM (final) | 6,253 | 3,143 | 32.4 | 0.78 |
+%90 Mondrian tahmin aralığı testte **%90,22 marjinal kapsama** sağlar; tahmin
+fiyatı gruplarında kapsama yaklaşık **%89-%91** aralığındadır. Gerçek fiyatın
+50-150 bin dolar kuyruğundaki düşük kapsama, kalibrasyondan çok nadir ve pahalı
+araçlardaki nokta tahmin hatasından kaynaklanır. Ayrıntı:
+[phase6_results.md](docs/phase6_results.md).
 
-Öznitelik önem sıralaması (gain tabanlı) beklentiyle uyumlu: yaş (%39), model
-(%16), kilometre (%10). Fiyat segmenti, marka ve yaş bazında hata analizi:
-[docs/phase3_results.md](docs/phase3_results.md).
+## Öne çıkan çıktılar
 
-Nokta tahminine ek olarak, conformal quantile regression ile ilan başına %90 tahmin
-aralığı üretilir; marjinal kapsama %90.2, öznitelik-koşullu (Mondrian) kalibrasyonla
-bin başına kapsama %89-91. Ayrıntı: [docs/phase6_results.md](docs/phase6_results.md).
+- Değer kaybı öne yüklüdür: medyan fiyat 5. yılda %47, 10. yılda %72 düşer.
+  Kilometre etkisi doğrusal değildir ve yaklaşık 150 bin milden sonra zayıflar.
+- Açıklamadan türetilen üç sızıntısız özellik, test RMSE'yi 6.591 $'dan
+  6.253 $'a düşürmüştür. Kontrollü deney:
+  [phase7_results.md](docs/phase7_results.md).
+- 7.552 ilan artık sinyaliyle, 1.979 ilan yapısal sinyalle işaretlenmiştir.
+  İki güçlü ve bağımsız sinyalin kesişimindeki **48 ilan** en yüksek öncelikli
+  inceleme kümesidir. [suspicious_listings.csv](reports/suspicious_listings.csv)
+  üç aksiyon sınıfından en yüksek skorlu 30 örneği içerir.
 
-## Öne çıkan bulgular
-
-1. Değer kaybı öne yüklü: medyan fiyat 5. yılda %47, 10. yılda %72 düşüyor.
-   ([figür](reports/figures/02_depreciation.png))
-2. Kilometre en güçlü sayısal değişken (korelasyon -0.51) ama doğrusal değil;
-   etkisi ~150 bin milden sonra düzleşiyor ve yaşla etkileşimli. Ağaç tabanlı
-   modelin doğrusal modele göre %22 RMSE üstünlüğünün başlıca nedeni bu.
-   ([figür](reports/figures/10_age_odometer_interaction.png))
-3. Hedefin log dönüşümü ucuz araçlardaki yüzde hatayı belirgin biçimde azaltıyor:
-   ham fiyat hedefi RMSE'de öndeyken ($5,649 vs $6,067 val) MAPE'de 15 puan geride
-   (%49 vs %34). İlanların çoğu $20 binin altında olduğundan MAPE önceliklendirildi.
-4. Tek değişkenli "primler" büyük ölçüde yaş kaynaklı: VIN'li ilanların 1.98x fiyat
-   primi, yaş sabitlenince 1.29x'e iniyor.
-   ([figür](reports/figures/09_confound_check.png))
-5. En yüksek güvenli 48 şüpheli ilan, iki bağımsız sinyalin (fiyat artığı +
-   Isolation Forest) kesişiminden geliyor. Tipik örüntü: ~$500'a listelenmiş 2-3
-   yaşındaki pickup'lar ve $123,456 gibi klavye hatası fiyatlar.
-   ([rapor](reports/suspicious_listings.csv))
-
-## Yöntem
-
-- **Temizleme:** fiyat, yıl, kilometre ve başlık durumu filtreleri; VIN ve parmak
-  izi tabanlı tekilleştirme (426,880 -> 197,814 satır). Kurallar ve gerekçeler:
-  [docs/cleaning_pipeline.md](docs/cleaning_pipeline.md).
-- **Öznitelikler:** yaş (ilan yılı - model yılı), yıllık ortalama kilometre, log
-  dönüşümleri ve açıklama metninden çıkarılan sızıntısız trim/donanım sinyalleri
-  (yalnızca alfabetik eşleşme; metinden sayı okunmaz).
-- **Kodlama:** yüksek kardinaliteli `model` için out-of-fold hedef kodlama; düşük
-  kardinaliteli değişkenler için one-hot. Tüm kodlayıcılar yalnızca eğitim bölmesine
-  fit edilir.
-- **Modeller:** doğrusal regresyon (referans), Random Forest ve LightGBM; hedef
-  `log1p(price)`.
-- **Anomali:** 5 katlı OOF artıklarına dayalı MAD-z skoru ile yapısal Isolation
-  Forest'ın kesişimi, katmanlı eşiklerle.
-
-Hedef dönüşümü, kodlama stratejisi ve öznitelik kümesi gibi kararlar birer ablation
-çalışmasıyla alternatifleriyle karşılaştırıldı. Sonuçlar
-[docs/phase3_results.md](docs/phase3_results.md) ve
-[docs/phase7_results.md](docs/phase7_results.md) içinde.
-
-## Sınırlamalar ve varsayımlar
-
-- Veri, Nisan-Mayıs 2021 arası ~30 günlük tek bir kesittir. Mevsimsellik modellenmez;
-  her satır bağımsız bir ilan olduğundan rastgele train/test bölmesi kullanıldı.
-  Araç yaşı gerçek tarihe göre değil, ilan tarihine göre hesaplanır.
-- Anomali eşikleri istatistiksel değil operasyoneldir: artık dağılımı kalın kuyruklu
-  (|z|>3.5 oranı Gaussian beklentisinin ~80 katı), dolayısıyla eşik bir kapasite
-  tercihidir. MAPE ~%37 olduğundan orta seviye işaretler model hatası da olabilir;
-  bu nedenle işaretler katmanlıdır. Ground-truth etiket olmadığından doğruluk metriği
-  raporlanmaz.
-- Tekilleştirme sonrası kalan yakın-kopyaların train/test sınırını geçme etkisi
-  ölçüldü: test satırlarının %4.6'sında yakın kopya var, genel RMSE'ye etkisi +%0.6
-  (kabul eşiğinin altında). Ölçüm: [docs/phase6_results.md](docs/phase6_results.md).
-- Temizleme 426,880 satırdan 197,814'e (%46.3) düşürüyor. Marka ve eyalet
-  kompozisyon kayması küçük (isimli üreticilerde en fazla 1.40 pp, eyaletlerde
-  1.00 pp), fiyat/yıl kesim sınırları bilinçli scoping kararı. Dedup 2015-19
-  yıl bandı ve 20-50k fiyat bandını orantısız inceltir; segment bazlı hata
-  analizinde bu bantlar zaten ayrı raporlanır. Ayrıntı:
-  [docs/attrition_analysis.md](docs/attrition_analysis.md).
-- Tahmin aralıkları öznitelik-koşullu kapsama garantisi verir; gerçek fiyata göre uç
-  segmentlerde (50-150 bin) kapsama düşer. Bu bir kalibrasyon sınırı değil, nadir
-  pahalı araçlarda nokta tahminin kendi sınırıdır.
+EDA grafikleri `reports/figures/`, yöntem ve örnekler
+[phase2_insights.md](docs/phase2_insights.md) ve
+[phase4_results.md](docs/phase4_results.md) altındadır.
 
 ## Kurulum ve çalıştırma
 
-Ham veri (`vehicles.csv`, ~1.4 GB) repoda yer almaz. Kaggle "Used Cars Dataset"
-indirilip `data/raw/vehicles.csv` olarak yerleştirilmelidir (bkz.
-[data/raw/README.md](data/raw/README.md)).
+Python 3.12 önerilir. Repoya dahil edilmeyen ham Kaggle verisini
+`data/raw/vehicles.csv` konumuna yerleştirin; kaynak bilgisi için
+[data/raw/README.md](data/raw/README.md) dosyasına bakın.
 
 ```powershell
 python -m venv env
 .\env\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
-python scripts/clean_data.py         # ham veri -> data/processed/cleaned.parquet
-python scripts/run_eda.py            # figurler + EDA raporu
-python scripts/train.py             # 3 model + ablation calismalari
-python scripts/detect_anomalies.py   # anomali skorlama -> reports/suspicious_listings.csv
-python scripts/predict_intervals.py  # conformal tahmin araliklari
+python scripts/clean_data.py
+python scripts/run_eda.py
+python scripts/train.py
+python scripts/detect_anomalies.py
+python scripts/predict_intervals.py
 ```
 
-Tekrarlanabilirlik: Python 3.12, tüm rastgele işlemler için `random_state=42`,
-[requirements.txt](requirements.txt) içinde sabitlenmiş paket sürümleri.
+A4 açıklama özelliği deneyini ayrıca üretmek için:
+
+```powershell
+python scripts/ablation_description_features.py
+```
+
+Testler gerçek veri dosyasına ihtiyaç duymaz:
+
+```powershell
+python -m pytest -q
+```
+
+Mevcut paket: **122 test**. Bağımlılıklar tam sürümleriyle sabitlenmiştir.
 
 ## Proje yapısı
 
-```
-data/          ham (repoda yok) ve islenmis veri
-src/           preprocess, features, models, evaluation, anomaly paketleri
-scripts/       calistirilabilir giris noktalari + ablation/probe betikleri
-notebooks/     presentation.ipynb (sunum)
-docs/          temizleme ve sonuc dokumanlari
-reports/       figurler ve supheli ilan raporu
+```text
+src/          reusable preprocessing, features, models, evaluation, anomaly logic
+scripts/      pipeline entry points and diagnostic probes
+tests/        pytest suite mirroring src/
+data/         raw input and generated parquet output
+reports/      figures, presentation and suspicious-listing report
+docs/         audits, experiment plans and measured results
+notebooks/    pre-executed presentation notebook
 ```
 
-Dokümanlar: [veri denetimi](docs/phase1_audit.md) ·
-[temizleme ve öznitelikler](docs/cleaning_pipeline.md) ·
-[atrisyon analizi](docs/attrition_analysis.md) ·
-[EDA](docs/phase2_insights.md) · [modelleme ve ablation](docs/phase3_results.md) ·
-[anomali tespiti](docs/phase4_results.md) ·
-[split bütünlüğü ve tahmin aralıkları](docs/phase6_results.md) ·
-[öznitelik denemeleri](docs/phase7_results.md)
+## Kapsam ve sınırlamalar
+
+- Veri, ABD pazarından Nisan-Mayıs 2021 dönemine ait yaklaşık 30 günlük bir
+  kesittir; mevsimsellik ve zaman içindeki fiyat kayması modellenmez.
+- Test kayıtlarının %4,6'sında train tarafında yakın kopya bulunmuştur; temiz
+  alt kümede RMSE farkı yalnızca +%0,6 olduğu için grup bazlı yeniden bölme
+  uygulanmamıştır.
+- Açıklama özellikleri A4'te aynı test kümesi üzerinde karşılaştırıldıktan sonra
+  varsayılan sete alınmıştır. Bu nedenle 6.253 $'lık post-A4 skor, tamamen
+  dokunulmamış bir final tahmin değil, seçim sonrası ölçümdür; yeni bir holdout
+  veya nested CV ile doğrulanmalıdır.
+- Faz 8 yapısal refaktörü 122 testle doğrulanmış, ancak ham veri repoda olmadığı
+  için tam veri akışı refaktör sonrasında yeniden çalıştırılmamıştır. Kayıtlı
+  metriklerin kaynağı ve bu risk [phase8_results.md](docs/phase8_results.md)
+  içinde açıkça belgelenmiştir.
