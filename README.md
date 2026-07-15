@@ -6,6 +6,8 @@ bilimi projesi. Modüler iş mantığı `src/` altında OOP sınıfları olarak,
 akışları `scripts/` altında ince orkestrasyon script'leri olarak tutulur;
 notebook yalnızca sunum katmanıdır.
 
+![Yas ve kilometreye gore deger kaybi](reports/figures/02_depreciation.png)
+
 ## Akış
 
 ```text
@@ -126,7 +128,14 @@ Model seçimi validation kümesinde yapılmıştır:
 
 Train + validation havuzuyla kurulan LightGBM (bu havuzdan ayrılan iç
 early-stopping holdout'u ile), 39.563 satırlık test kümesinde **6.253 $ RMSE**,
-**3.143 $ MAE**, **%32,4 MAPE** ve **0,78 R²** üretmiştir. En yüksek gain
+**3.143 $ MAE**, **%32,4 MAPE** ve **0,78 R²** üretmiştir.
+
+Bu sayıların ölçek çıpası: temizlenmiş veride fiyatın standart sapması
+13.299 $'dır, yani her ilana ortalama fiyatı atayan naive bir tahminci
+~13.300 $ RMSE yapar; medyan fiyatı atayan tahminci 9.288 $ MAE üretir.
+Final model RMSE'yi bunun yaklaşık yarısına, MAE'yi üçte birine indirir.
+Tablodaki Linear Regression da öğrenilebilir en basit modelin referans
+çizgisidir. En yüksek gain
 payları `age` (%39), `model` (%16) ve `odometer` (%10) özelliklerindedir. Tüm
 ablation ve segment analizleri [phase3_results.md](docs/phase3_results.md)
 içindedir.
@@ -148,6 +157,8 @@ araçlardaki nokta tahmin hatasından kaynaklanır. Ayrıntı:
   İki güçlü ve bağımsız sinyalin kesişimindeki **48 ilan** en yüksek öncelikli
   inceleme kümesidir. [suspicious_listings.csv](reports/suspicious_listings.csv)
   üç aksiyon sınıfından en yüksek skorlu 30 örneği içerir.
+
+![Anomali skorlarina genel bakis](reports/figures/12_anomaly_overview.png)
 
 EDA grafikleri `reports/figures/`, yöntem ve örnekler
 [phase2_insights.md](docs/phase2_insights.md) ve
