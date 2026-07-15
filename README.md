@@ -205,7 +205,7 @@ src/          reusable preprocessing, features, models, evaluation, anomaly logi
 scripts/      pipeline entry points and diagnostic probes
 tests/        pytest suite mirroring src/
 data/         raw input and generated parquet output
-reports/      figures, presentation and suspicious-listing report
+reports/      figures and the suspicious-listing report
 docs/         audits, experiment plans and measured results
 notebooks/    pre-executed presentation notebook
 ```
