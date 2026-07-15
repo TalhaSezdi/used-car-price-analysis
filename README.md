@@ -196,7 +196,9 @@ python -m pytest -q
 
 Mevcut paket: **122 test**, `tests/` klasörü `src/` yapısını birebir
 aynalar. Bağımlılıklar `requirements.txt` içinde tam sürümleriyle
-sabitlenmiştir.
+sabitlenmiştir. Akışın tamamı (6 script) en son Temmuz 2026'da ham veriye
+karşı baştan sona koşulmuş ve bu README'deki her metriği birebir yeniden
+üretmiştir; ayrıntı [phase8_results.md](docs/phase8_results.md) içindedir.
 
 ## Proje yapısı
 
@@ -221,7 +223,3 @@ notebooks/    pre-executed presentation notebook
   varsayılan sete alınmıştır. Bu nedenle 6.253 $'lık post-A4 skor, tamamen
   dokunulmamış bir final tahmin değil, seçim sonrası ölçümdür; yeni bir holdout
   veya nested CV ile doğrulanmalıdır.
-- Faz 8 yapısal refaktörü 122 testle doğrulanmış, ancak ham veri repoda olmadığı
-  için tam veri akışı refaktör sonrasında yeniden çalıştırılmamıştır. Kayıtlı
-  metriklerin kaynağı ve bu risk [phase8_results.md](docs/phase8_results.md)
-  içinde açıkça belgelenmiştir.

@@ -70,6 +70,16 @@ predict_intervals.py -> ablation_description_features.py` once against the
 real data at their convenience, as a real-world sanity check that the
 refactor is truly behavior-preserving end to end.
 
+**Update (2026-07-15): risk closed.** All 6 scripts were re-run end to end
+against the real 426,880-row CSV. Every reported metric reproduced exactly:
+197,814 cleaned rows, final test RMSE $6,252.50 / MAE $3,142.81 / MAPE
+32.40% / R2 0.78, anomaly flags 7,552 residual / 1,979 IF / 48 HIGH,
+Mondrian 90% marginal coverage 90.22%, A4 baseline $6,591.16 -> $6,252.50.
+Regenerated result docs, figures, and reports were byte-identical to the
+committed versions with one exception: a wall-clock timing line in
+phase4_results.md ("5.5s" -> "5.4s"), reverted as machine noise. The
+refactor is confirmed behavior-preserving end to end.
+
 ## Out of scope (deferred, unchanged from the plan)
 
 `check_consistency.py`, `probe_attrition.py`, `probe_description_signal.py`,
