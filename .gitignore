@@ -23,3 +23,10 @@ Thumbs.db
 
 # --- Claude Code local session state ---
 .claude/
+
+# --- Personal prep material (local only, never publish) ---
+docs/proje_anlatimi.mp3
+docs/ses_transkript.md
+docs/speaker_notes.md
+docs/egitim_rehberi.md
+docs/readmeclaude.md

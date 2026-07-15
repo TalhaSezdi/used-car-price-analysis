@@ -292,8 +292,7 @@ skimmable, and every claim must trace to a number or a figure.
 **Status:** DONE.
 - reports/presentation.pptx: 15 slides (14 + 1 backup Q&A), 16:9, Cherry Bold palette
   (navy dark slides for title/thesis/leakage-story/conclusion), Cambria/Calibri.
-- Speaker notes on every slide (Turkish, ~60-90s each, with anticipated-question answers);
-  duplicated to docs/speaker_notes.md for rehearsal.
+- Speaker notes on every slide (Turkish, ~60-90s each, with anticipated-question answers).
 - Built with python-pptx (no node/LibreOffice on this machine); native editable table + 2
   native bar charts (gain importance, MAPE by segment); 4 figures embedded from reports/figures/.
 - QA: all 15 slides exported to PNG via PowerPoint COM and visually inspected. One fix cycle:
@@ -302,7 +301,7 @@ skimmable, and every claim must trace to a number or a figure.
 
 Context: 15-20 min live technical presentation to the arabam.com data team lead.
 Deliverables: `reports/presentation.pptx` + speaker notes per slide (inside the pptx notes
-pane, and a separate `docs/speaker_notes.md` for rehearsal).
+pane).
 Language: Turkish narrative, English figures/code (consistent with project artifacts).
 Figures embedded from `reports/figures/` (no regeneration).
 
